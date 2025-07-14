@@ -21,7 +21,6 @@ use emulator_registers_generated::dma::DmaPeripheral;
 use emulator_registers_generated::root_bus::{AutoRootBus, AutoRootBusOffsets};
 
 use crate::{EmulatorArgs};
-use crate::doe_mbox_fsm::DoeMboxFsm;
 use crate::elf;
 
 // Helper struct to return bus system components and recovery data
@@ -258,7 +257,7 @@ impl Emulator {
         soc_to_caliptra: impl Bus + 'static,
         mcu_firmware: Vec<u8>,
     ) -> io::Result<BusSystem> {
-        use emulator_consts::{RAM_ORG, ROM_SIZE};
+        use emulator_consts::ROM_SIZE;
         use std::process::exit;
         
         if rom_buffer.len() > ROM_SIZE as usize {
@@ -267,7 +266,7 @@ impl Emulator {
         }
 
         let mut mcu_root_bus_offsets = McuRootBusOffsets::default();
-        let mut auto_root_bus_offsets = AutoRootBusOffsets::default();
+        let auto_root_bus_offsets = AutoRootBusOffsets::default();
 
         // Apply CLI overrides to offsets (simplified for brevity)
         if let Some(rom_offset) = cli.rom_offset {
@@ -284,7 +283,7 @@ impl Emulator {
             clock: clock.clone(),
         };
         
-        let mut root_bus = McuRootBus::new(bus_args).unwrap();
+        let root_bus = McuRootBus::new(bus_args).unwrap();
 
         let dma_ram = root_bus.ram.clone();
         let dma_rom_sram = root_bus.rom_sram.clone();
