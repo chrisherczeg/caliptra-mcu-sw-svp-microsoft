@@ -5,7 +5,7 @@
 // The `MctpPldmSocket` struct represents a socket for sending and receiving PLDM messages over MCTP.
 // The `MctpTransport` struct is responsible for creating and managing `MctpPldmSocket` instances.
 
-use crate::tests::mctp_util::common::MctpUtil;
+use crate::mctp_util::common::MctpUtil;
 use core::time::Duration;
 use emulator_periph::DynamicI3cAddress;
 use pldm_common::util::mctp_transport::{MctpCommonHeader, MCTP_PLDM_MSG_TYPE};

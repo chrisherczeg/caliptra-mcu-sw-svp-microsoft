@@ -12,10 +12,8 @@ Abstract:
 
 --*/
 
-use caliptra_emu_bus::Bus;
 use caliptra_emu_cpu::xreg_file::XReg;
-use caliptra_emu_cpu::StepAction;
-use caliptra_emu_cpu::{Cpu, WatchPtrKind};
+use caliptra_emu_cpu::{WatchPtrKind};
 use caliptra_emu_types::RvSize;
 use gdbstub::arch::SingleStepGdbBehavior;
 use gdbstub::common::Signal;
@@ -28,38 +26,49 @@ use gdbstub::target::Target;
 use gdbstub::target::TargetResult;
 use gdbstub_arch;
 
+use crate::emulator::{Emulator, SystemStepAction};
+
 pub enum ExecMode {
     Step,
     Continue,
 }
 
-pub struct GdbTarget<T: Bus> {
-    cpu: Cpu<T>,
+pub struct GdbTarget {
+    emulator: Emulator,
     exec_mode: ExecMode,
     breakpoints: Vec<u32>,
+    interrupt_requested: bool,
 }
 
-impl<T: Bus> GdbTarget<T> {
+impl GdbTarget {
     // Create new instance of GdbTarget
-    pub fn new(cpu: Cpu<T>) -> Self {
+    pub fn new(emulator: Emulator) -> Self {
         Self {
-            cpu,
+            emulator,
             exec_mode: ExecMode::Continue,
             breakpoints: Vec::new(),
+            interrupt_requested: false,
         }
     }
 
     // Conditional Run (Private function)
     fn cond_run(&mut self) -> SingleThreadStopReason<u32> {
         loop {
-            match self.cpu.step(None) {
-                StepAction::Continue => {
-                    if self.breakpoints.contains(&self.cpu.read_pc()) {
+            // Check for interrupt request (Ctrl+C)
+            if self.interrupt_requested {
+                self.interrupt_requested = false;
+                return SingleThreadStopReason::Signal(Signal::SIGINT);
+            }
+
+            match self.emulator.step(None) {
+                SystemStepAction::Continue => {
+                    if self.breakpoints.contains(&self.emulator.read_pc()) {
+                        println!("Hit breakpoint at PC: 0x{:08X}", self.emulator.read_pc());
                         return SingleThreadStopReason::SwBreak(());
                     }
                 }
-                StepAction::Break => {
-                    let watch = self.cpu.get_watchptr_hit().unwrap();
+                SystemStepAction::Break => {
+                    let watch = self.emulator.mcu_cpu.get_watchptr_hit().unwrap();
                     return SingleThreadStopReason::Watch {
                         tid: (),
                         kind: if watch.kind == WatchPtrKind::Write {
@@ -70,7 +79,7 @@ impl<T: Bus> GdbTarget<T> {
                         addr: watch.addr,
                     };
                 }
-                _ => break,
+                SystemStepAction::Exit => break,
             }
         }
         SingleThreadStopReason::Exited(0)
@@ -80,15 +89,114 @@ impl<T: Bus> GdbTarget<T> {
     pub fn run(&mut self) -> SingleThreadStopReason<u32> {
         match self.exec_mode {
             ExecMode::Step => {
-                self.cpu.step(None);
+                self.emulator.step(None);
                 SingleThreadStopReason::DoneStep
             }
             ExecMode::Continue => self.cond_run(),
         }
     }
+
+    // Execute a single step and return stop reason if execution should halt
+    pub fn run_single_step(&mut self) -> Option<SingleThreadStopReason<u32>> {
+        // Check for interrupt request (Ctrl+C) first
+        if self.interrupt_requested {
+            self.interrupt_requested = false;
+            return Some(SingleThreadStopReason::Signal(Signal::SIGINT));
+        }
+
+        match self.exec_mode {
+            ExecMode::Step => {
+                self.emulator.step(None);
+                Some(SingleThreadStopReason::DoneStep)
+            }
+            ExecMode::Continue => {
+                match self.emulator.step(None) {
+                    SystemStepAction::Continue => {
+                        if self.breakpoints.contains(&self.emulator.read_pc()) {
+                            println!("Hit breakpoint at PC: 0x{:08X}", self.emulator.read_pc());
+                            Some(SingleThreadStopReason::SwBreak(()))
+                        } else {
+                            None // Continue execution
+                        }
+                    }
+                    SystemStepAction::Break => {
+                        let watch = self.emulator.mcu_cpu.get_watchptr_hit().unwrap();
+                        Some(SingleThreadStopReason::Watch {
+                            tid: (),
+                            kind: if watch.kind == WatchPtrKind::Write {
+                                WatchKind::Write
+                            } else {
+                                WatchKind::Read
+                            },
+                            addr: watch.addr,
+                        })
+                    }
+                    SystemStepAction::Exit => Some(SingleThreadStopReason::Exited(0)),
+                }
+            }
+        }
+    }
+
+    // Signal an interrupt request (called when Ctrl+C is received)
+    pub fn request_interrupt(&mut self) {
+        self.interrupt_requested = true;
+    }
+
+    // Check if an interrupt has been requested
+    pub fn is_interrupt_requested(&self) -> bool {
+        self.interrupt_requested
+    }
+
+    // Execute the target with responsive interrupt checking
+    pub fn run_responsive(&mut self) -> SingleThreadStopReason<u32> {
+        match self.exec_mode {
+            ExecMode::Step => {
+                self.emulator.step(None);
+                SingleThreadStopReason::DoneStep
+            }
+            ExecMode::Continue => {
+                // Execute with interrupt checking every few steps
+                for _ in 0..1000 {  // Check for interrupts every 1000 steps
+                    // Check for interrupt request (Ctrl+C) first
+                    if self.interrupt_requested {
+                        self.interrupt_requested = false;
+                        println!("Interrupt request detected, stopping execution");
+                        return SingleThreadStopReason::Signal(Signal::SIGINT);
+                    }
+
+                    match self.emulator.step(None) {
+                        SystemStepAction::Continue => {
+                            if self.breakpoints.contains(&self.emulator.read_pc()) {
+                                println!("Hit breakpoint at PC: 0x{:08X}", self.emulator.read_pc());
+                                return SingleThreadStopReason::SwBreak(());
+                            }
+                        }
+                        SystemStepAction::Break => {
+                            let watch = self.emulator.mcu_cpu.get_watchptr_hit().unwrap();
+                            return SingleThreadStopReason::Watch {
+                                tid: (),
+                                kind: if watch.kind == WatchPtrKind::Write {
+                                    WatchKind::Write
+                                } else {
+                                    WatchKind::Read
+                                },
+                                addr: watch.addr,
+                            };
+                        }
+                        SystemStepAction::Exit => return SingleThreadStopReason::Exited(0),
+                    }
+                }
+                
+                // If we reach here, we've executed 1000 steps without hitting a breakpoint
+                // Return a temporary stop to allow gdbstub to check for interrupts
+                // This creates a responsive execution loop
+                SingleThreadStopReason::Signal(Signal::SIGALRM)
+            }
+        }
+    }
 }
 
-impl<T: Bus> Target for GdbTarget<T> {
+impl Target for GdbTarget {
     type Arch = gdbstub_arch::riscv::Riscv32;
     type Error = &'static str;
 
@@ -111,17 +219,17 @@ impl<T: Bus> Target for GdbTarget<T> {
     }
 }
 
-impl<T: Bus> SingleThreadBase for GdbTarget<T> {
+impl SingleThreadBase for GdbTarget {
     fn read_registers(
         &mut self,
         regs: &mut gdbstub_arch::riscv::reg::RiscvCoreRegs<u32>,
     ) -> TargetResult<(), Self> {
         // Read PC
-        regs.pc = self.cpu.read_pc();
+        regs.pc = self.emulator.read_pc();
 
         // Read XReg
         for idx in 0..regs.x.len() {
-            regs.x[idx] = self.cpu.read_xreg(XReg::from(idx as u16)).unwrap();
+            regs.x[idx] = self.emulator.mcu_cpu.read_xreg(XReg::from(idx as u16)).unwrap();
         }
 
         Ok(())
@@ -132,11 +240,11 @@ impl<T: Bus> SingleThreadBase for GdbTarget<T> {
         regs: &gdbstub_arch::riscv::reg::RiscvCoreRegs<u32>,
     ) -> TargetResult<(), Self> {
         // Write PC
-        self.cpu.write_pc(regs.pc);
+        self.emulator.write_pc(regs.pc);
 
         // Write XReg
         for idx in 0..regs.x.len() {
-            self.cpu
+            self.emulator.mcu_cpu
                 .write_xreg(XReg::from(idx as u16), regs.x[idx])
                 .unwrap();
         }
@@ -145,10 +253,9 @@ impl<T: Bus> SingleThreadBase for GdbTarget<T> {
     }
 
     fn read_addrs(&mut self, start_addr: u32, data: &mut [u8]) -> TargetResult<(), Self> {
-        #[allow(clippy::needless_range_loop)] // this is needed because we wraparound
+        #[allow(clippy::needless_range_loop)]
         for i in 0..data.len() {
-            data[i] = self
-                .cpu
+            data[i] = self.emulator.mcu_cpu
                 .read_bus(RvSize::Byte, start_addr.wrapping_add(i as u32))
                 .unwrap_or_default() as u8;
         }
@@ -156,9 +263,9 @@ impl<T: Bus> SingleThreadBase for GdbTarget<T> {
     }
 
     fn write_addrs(&mut self, start_addr: u32, data: &[u8]) -> TargetResult<(), Self> {
-        #[allow(clippy::needless_range_loop)] // this is needed because we wraparound
+        #[allow(clippy::needless_range_loop)]
         for i in 0..data.len() {
-            self.cpu
+            self.emulator.mcu_cpu
                 .write_bus(
                     RvSize::Byte,
                     start_addr.wrapping_add(i as u32),
@@ -176,25 +283,55 @@ impl<T: Bus> SingleThreadBase for GdbTarget<T> {
     }
 }
 
-impl<T: Bus> target::ext::base::singlethread::SingleThreadSingleStep for GdbTarget<T> {
+impl target::ext::base::singlethread::SingleThreadSingleStep for GdbTarget {
     fn step(&mut self, signal: Option<Signal>) -> Result<(), Self::Error> {
-        if signal.is_some() {
-            return Err("no support for stepping with signal");
+        // Handle signals appropriately
+        match signal {
+            None => {
+                // Normal single step without signal
+                self.exec_mode = ExecMode::Step;
+            }
+            Some(Signal::SIGINT) => {
+                // SIGINT can be safely ignored when stepping - just step normally
+                println!("Single stepping after SIGINT");
+                self.exec_mode = ExecMode::Step;
+            }
+            Some(Signal::SIGALRM) => {
+                // SIGALRM is our internal signal for responsive execution - step normally
+                self.exec_mode = ExecMode::Step;
+            }
+            Some(_other_signal) => {
+                // For other signals, we don't support signal injection
+                return Err("no support for stepping with signal");
+            }
         }
-
-        self.exec_mode = ExecMode::Step;
 
         Ok(())
     }
 }
 
-impl<T: Bus> SingleThreadResume for GdbTarget<T> {
+impl SingleThreadResume for GdbTarget {
     fn resume(&mut self, signal: Option<Signal>) -> Result<(), Self::Error> {
-        if signal.is_some() {
-            return Err("no support for continuing with signal");
+        // Handle signals appropriately
+        match signal {
+            None => {
+                // Normal continue without signal
+                self.exec_mode = ExecMode::Continue;
+            }
+            Some(Signal::SIGINT) => {
+                // SIGINT can be safely ignored when resuming - just continue normally
+                println!("Resuming execution after SIGINT");
+                self.exec_mode = ExecMode::Continue;
+            }
+            Some(Signal::SIGALRM) => {
+                // SIGALRM is our internal signal for responsive execution - continue normally
+                self.exec_mode = ExecMode::Continue;
+            }
+            Some(_other_signal) => {
+                // For other signals, we don't support signal injection
+                return Err("no support for continuing with signal");
+            }
         }
-
-        self.exec_mode = ExecMode::Continue;
 
         Ok(())
     }
@@ -207,7 +344,7 @@ impl<T: Bus> SingleThreadResume for GdbTarget<T> {
     }
 }
 
-impl<T: Bus> target::ext::breakpoints::Breakpoints for GdbTarget<T> {
+impl target::ext::breakpoints::Breakpoints for GdbTarget {
     #[inline(always)]
     fn support_sw_breakpoint(
         &mut self,
@@ -222,7 +359,7 @@ impl<T: Bus> target::ext::breakpoints::Breakpoints for GdbTarget<T> {
     }
 }
 
-impl<T: Bus> target::ext::breakpoints::SwBreakpoint for GdbTarget<T> {
+impl target::ext::breakpoints::SwBreakpoint for GdbTarget {
     fn add_sw_breakpoint(&mut self, addr: u32, _kind: usize) -> TargetResult<bool, Self> {
         self.breakpoints.push(addr);
         Ok(true)
@@ -238,7 +375,7 @@ impl<T: Bus> target::ext::breakpoints::SwBreakpoint for GdbTarget<T> {
     }
 }
 
-impl<T: Bus> target::ext::breakpoints::HwWatchpoint for GdbTarget<T> {
+impl target::ext::breakpoints::HwWatchpoint for GdbTarget {
     fn add_hw_watchpoint(
         &mut self,
         addr: u32,
@@ -246,7 +383,7 @@ impl<T: Bus> target::ext::breakpoints::HwWatchpoint for GdbTarget<T> {
         kind: WatchKind,
     ) -> TargetResult<bool, Self> {
         // Add Watchpointer (and transform WatchKind to WatchPtrKind)
-        self.cpu.add_watchptr(
+        self.emulator.mcu_cpu.add_watchptr(
             addr,
             len,
             if kind == WatchKind::Write {
@@ -266,7 +403,7 @@ impl<T: Bus> target::ext::breakpoints::HwWatchpoint for GdbTarget<T> {
         kind: WatchKind,
     ) -> TargetResult<bool, Self> {
         // Remove Watchpointer (and transform WatchKind to WatchPtrKind)
-        self.cpu.remove_watchptr(
+        self.emulator.mcu_cpu.remove_watchptr(
             addr,
             len,
             if kind == WatchKind::Write {

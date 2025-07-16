@@ -1,7 +1,7 @@
 # Licensed under the Apache-2.0 license
 
 [package]
-name = "emulator"
+name = "emulator-lib"
 version = "0.1.0"
 edition = "2021"
 
@@ -19,8 +19,6 @@ chrono.workspace = true
 clap.workspace = true
 clap-num.workspace = true
 crc.workspace = true
-crossterm.workspace = true
-ctrlc.workspace = true
 ecdsa.workspace = true
 elf.workspace = true
 emulator-bmc.workspace = true
@@ -28,8 +26,6 @@ emulator-caliptra.workspace = true
 emulator-consts.workspace = true
 emulator-periph.workspace = true
 emulator-registers-generated.workspace = true
-gdbstub_arch.workspace = true
-gdbstub.workspace = true
 hex.workspace = true
 log.workspace = true
 lazy_static.workspace = true
@@ -41,8 +37,6 @@ rand.workspace = true
 sec1.workspace = true
 sha2.workspace = true
 semver.workspace = true
-simple_logger.workspace = true
-smlang.workspace = true
 strum_macros.workspace = true
 strum.workspace = true
 tempfile.workspace = true
@@ -79,12 +73,3 @@ test-pldm-discovery = []
 test-pldm-fw-update = []
 test-pldm-fw-update-e2e = []
 test-pldm-streaming-boot = []
-
-# Define both library and binary targets
-[[bin]]
-name = "emulator"
-path = "src/main.rs"
-
-[lib]
-name = "emulator"
-path = "src/lib.rs"
