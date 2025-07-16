@@ -1,7 +1,7 @@
 // Licensed under the Apache-2.0 license
 
 use crate::i3c_socket::{MctpTestState, TestTrait};
-use crate::tests::mctp_util::common::MctpUtil;
+use crate::mctp_util::common::MctpUtil;
 use crate::{wait_for_runtime_start, EMULATOR_RUNNING};
 use std::fs::File;
 use std::io::{self, ErrorKind, Read, Write};

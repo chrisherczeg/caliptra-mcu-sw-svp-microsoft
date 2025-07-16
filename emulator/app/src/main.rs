@@ -8,18 +8,16 @@ File Name:
 
 Abstract:
 
-    File contains main entrypoint for Caliptra MCU Emulator.
+    File contains main e            match emulator.step(Some(&mut trace_fn)) {
+                SystemStepAction::Continue => {}
+                SystemStepAction::Break => break,
+                SystemStepAction::Exit => break,
+            }oint for Caliptra MCU Emulator.
 
 --*/
 
-mod dis;
 mod dis_test;
-mod doe_mbox_fsm;
-mod elf;
-mod emulator;
-mod gdb;
-mod i3c_socket;
-mod mctp_transport;
+#[cfg(test)]
 mod tests;
 
 use caliptra_emu_cpu::RvInstr;
@@ -29,19 +27,11 @@ use std::fs::File;
 use std::io;
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use emulator::{EmulatorArgs, Emulator};
 
-pub static MCU_RUNTIME_STARTED: AtomicBool = AtomicBool::new(false);
-pub static EMULATOR_RUNNING: AtomicBool = AtomicBool::new(true);
-
-pub fn wait_for_runtime_start() {
-    while EMULATOR_RUNNING.load(Ordering::Relaxed) && !MCU_RUNTIME_STARTED.load(Ordering::Relaxed) {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-}
+// Use the library exports
+use emulator::{dis, emulator::{EmulatorArgs, Emulator}, gdb, EMULATOR_RUNNING, SystemStepAction};
 
 fn disassemble(pc: u32, instr: u32) -> String {
     let mut out = vec![];
@@ -128,9 +118,9 @@ pub fn free_run(
         while running.load(std::sync::atomic::Ordering::Relaxed) {
 
             match emulator.step(None) {
-                emulator::SystemStepAction::Continue => {}
-                emulator::SystemStepAction::Break => break,
-                emulator::SystemStepAction::Exit => break,
+                SystemStepAction::Continue => {}
+                SystemStepAction::Break => break,
+                SystemStepAction::Exit => break,
             }
         }
     }

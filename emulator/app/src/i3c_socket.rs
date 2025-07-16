@@ -33,6 +33,7 @@ Abstract:
 
 --*/
 
+#[cfg(test)]
 use crate::tests::spdm_validator::execute_spdm_validator;
 use crate::{wait_for_runtime_start, EMULATOR_RUNNING};
 use emulator_periph::{
@@ -191,6 +192,7 @@ pub(crate) fn run_tests(
     });
 
     if cfg!(feature = "test-spdm-validator") {
+        #[cfg(test)]
         execute_spdm_validator();
     }
 }

@@ -1,7 +1,7 @@
 // Licensed under the Apache-2.0 license
 
 use crate::i3c_socket::{MctpTestState, TestTrait};
-use crate::tests::mctp_util::common::MctpUtil;
+use crate::mctp_util::common::MctpUtil;
 use crate::EMULATOR_RUNNING;
 use std::net::TcpStream;
 use std::sync::atomic::Ordering;
