@@ -27,7 +27,7 @@ use clap::{Parser};
 use crossterm::event::{Event, KeyCode, KeyEvent};
 use std::fs::File;
 use std::io;
-use std::io::{IsTerminal, Read, Write};
+use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -141,37 +141,6 @@ fn main() -> io::Result<()> {
     run(cli, false).map(|_| ())
 }
 
-fn read_binary(path: &PathBuf, expect_load_addr: u32) -> io::Result<Vec<u8>> {
-    let mut file = File::open(path)?;
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer)?;
-
-    // Check if this is an ELF
-    if buffer.starts_with(&[0x7f, 0x45, 0x4c, 0x46]) {
-        println!("Loading ELF executable {}", path.display());
-        let elf = elf::ElfExecutable::new(&buffer).unwrap();
-        if elf.load_addr() != expect_load_addr {
-            Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!(
-                    "ELF executable has non-0x{:x} load address, which is not supported (got 0x{:x})",
-                    expect_load_addr, elf.load_addr()
-                ),
-            ))?;
-        }
-        // TBF files have an entry point offset by 0x20
-        if elf.entry_point() != expect_load_addr && elf.entry_point() != elf.load_addr() + 0x20 {
-            Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("ELF executable has non-0x{:x} entry point, which is not supported (got 0x{:x})", expect_load_addr, elf.entry_point()),
-            ))?;
-        }
-        buffer = elf.content().clone();
-    }
-
-    Ok(buffer)
-}
-
 pub fn run(cli: EmulatorArgs, capture_uart_output: bool) -> io::Result<Vec<u8>> {
     println!("{:?}", cli);
 
@@ -208,7 +177,7 @@ pub fn run(cli: EmulatorArgs, capture_uart_output: bool) -> io::Result<Vec<u8>> 
         }
         _ => {
             let instr_trace = if cli.trace_instr {
-                Some(PathBuf::from("/tmp").join("caliptra_instr_trace.txt"))
+                cli.log_dir.as_ref().map(|p| p.join("caliptra_instr_trace.txt"))
             } else {
                 None
             };
