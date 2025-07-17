@@ -74,7 +74,7 @@ fn run(cli: EmulatorArgs, capture_uart_output: bool) -> io::Result<Vec<u8>> {
     // Check if Optional GDB Port is passed
     match cli.gdb_port {
         Some(_port) => {
-            println!("GDB mode not supported with new Emulator struct");
+            println!("Caliptra CPU cannot be started with GDB enabled");
             exit(-1);
         }
         _ => {
