@@ -22,6 +22,8 @@ mod i3c_socket;
 mod mctp_transport;
 mod tests;
 
+use crate::emulator::EmulatorArgs;
+use caliptra_emu_cpu::StepAction;
 use clap::Parser;
 use std::cell::RefCell;
 use std::io;
@@ -29,8 +31,6 @@ use std::io::IsTerminal;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use caliptra_emu_cpu::StepAction;
-use crate::emulator::EmulatorArgs;
 
 pub static MCU_RUNTIME_STARTED: AtomicBool = AtomicBool::new(false);
 pub static EMULATOR_RUNNING: AtomicBool = AtomicBool::new(true);

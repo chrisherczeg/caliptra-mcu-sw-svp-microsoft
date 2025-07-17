@@ -13,7 +13,7 @@ Abstract:
 --*/
 
 use caliptra_emu_cpu::xreg_file::XReg;
-use caliptra_emu_cpu::{WatchPtrKind};
+use caliptra_emu_cpu::WatchPtrKind;
 use caliptra_emu_types::RvSize;
 use gdbstub::arch::SingleStepGdbBehavior;
 use gdbstub::common::Signal;
@@ -26,7 +26,7 @@ use gdbstub::target::Target;
 use gdbstub::target::TargetResult;
 use gdbstub_arch;
 
-use crate::emulator::{Emulator};
+use crate::emulator::Emulator;
 use caliptra_emu_cpu::StepAction as SystemStepAction;
 
 pub enum ExecMode {
@@ -66,7 +66,8 @@ impl GdbTarget {
             }
             ExecMode::Continue => {
                 // Execute with interrupt checking every few steps
-                for _ in 0..1000 {  // Check for interrupts every 1000 steps
+                for _ in 0..1000 {
+                    // Check for interrupts every 1000 steps
                     // Check for interrupt request (Ctrl+C) first
                     if self.interrupt_requested {
                         self.interrupt_requested = false;
@@ -77,7 +78,10 @@ impl GdbTarget {
                     match self.emulator.step() {
                         SystemStepAction::Continue => {
                             if self.breakpoints.contains(&self.emulator.mcu_cpu.read_pc()) {
-                                println!("Hit breakpoint at PC: 0x{:08X}", self.emulator.mcu_cpu.read_pc());
+                                println!(
+                                    "Hit breakpoint at PC: 0x{:08X}",
+                                    self.emulator.mcu_cpu.read_pc()
+                                );
                                 return SingleThreadStopReason::SwBreak(());
                             }
                         }
@@ -96,7 +100,7 @@ impl GdbTarget {
                         SystemStepAction::Fatal => return SingleThreadStopReason::Exited(0),
                     }
                 }
-                
+
                 // If we reach here, we've executed 1000 steps without hitting a breakpoint
                 // Return a temporary stop to allow gdbstub to check for interrupts
                 // This creates a responsive execution loop
@@ -139,7 +143,11 @@ impl SingleThreadBase for GdbTarget {
 
         // Read XReg
         for idx in 0..regs.x.len() {
-            regs.x[idx] = self.emulator.mcu_cpu.read_xreg(XReg::from(idx as u16)).unwrap();
+            regs.x[idx] = self
+                .emulator
+                .mcu_cpu
+                .read_xreg(XReg::from(idx as u16))
+                .unwrap();
         }
 
         Ok(())
@@ -154,7 +162,8 @@ impl SingleThreadBase for GdbTarget {
 
         // Write XReg
         for idx in 0..regs.x.len() {
-            self.emulator.mcu_cpu
+            self.emulator
+                .mcu_cpu
                 .write_xreg(XReg::from(idx as u16), regs.x[idx])
                 .unwrap();
         }
@@ -165,7 +174,9 @@ impl SingleThreadBase for GdbTarget {
     fn read_addrs(&mut self, start_addr: u32, data: &mut [u8]) -> TargetResult<(), Self> {
         #[allow(clippy::needless_range_loop)]
         for i in 0..data.len() {
-            data[i] = self.emulator.mcu_cpu
+            data[i] = self
+                .emulator
+                .mcu_cpu
                 .read_bus(RvSize::Byte, start_addr.wrapping_add(i as u32))
                 .unwrap_or_default() as u8;
         }
@@ -175,7 +186,8 @@ impl SingleThreadBase for GdbTarget {
     fn write_addrs(&mut self, start_addr: u32, data: &[u8]) -> TargetResult<(), Self> {
         #[allow(clippy::needless_range_loop)]
         for i in 0..data.len() {
-            self.emulator.mcu_cpu
+            self.emulator
+                .mcu_cpu
                 .write_bus(
                     RvSize::Byte,
                     start_addr.wrapping_add(i as u32),

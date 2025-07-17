@@ -59,9 +59,11 @@ impl run_blocking::BlockingEventLoop for GdbEventLoop {
         // Signal the target to interrupt its execution
         println!("GDB requested an interrupt (Ctrl+C)");
         target.request_interrupt();
-        
+
         // Immediately return a SIGINT to stop execution
-        Ok(Some(SingleThreadStopReason::Signal(gdbstub::common::Signal::SIGINT)))
+        Ok(Some(SingleThreadStopReason::Signal(
+            gdbstub::common::Signal::SIGINT,
+        )))
     }
 }
 
