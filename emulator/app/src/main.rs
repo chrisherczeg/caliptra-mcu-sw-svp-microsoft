@@ -22,40 +22,19 @@ mod i3c_socket;
 mod mctp_transport;
 mod tests;
 
-use crate::i3c_socket::start_i3c_socket;
-use caliptra_emu_bus::{Bus, Clock};
-use caliptra_emu_cpu::{Cpu, Pic};
 use clap::{ArgAction, Parser};
 use clap_num::maybe_hex;
 use crossterm::event::{Event, KeyCode, KeyEvent};
-use emulator_bmc::Bmc;
-use emulator_caliptra::{start_caliptra, StartCaliptraArgs};
-use emulator_consts::DEFAULT_CPU_ARGS;
-use emulator_consts::{RAM_ORG, ROM_SIZE};
-use emulator_periph::{
-    DoeMboxPeriph, DummyDoeMbox, DummyFlashCtrl, I3c, I3cController, Mci, McuRootBus,
-    McuRootBusArgs, McuRootBusOffsets, Otp,
-};
-use emulator_registers_generated::dma::DmaPeripheral;
-use emulator_registers_generated::root_bus::{AutoRootBus, AutoRootBusOffsets};
-use gdb::gdb_state;
-use gdb::gdb_target::GdbTarget;
-use mctp_transport::MctpTransport;
-use pldm_fw_pkg::FirmwareManifest;
-use pldm_ua::daemon::PldmDaemon;
-use pldm_ua::transport::{EndpointId, PldmTransport};
 use std::cell::RefCell;
 use std::fs::File;
 use std::io;
 use std::io::{IsTerminal, Read};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::exit;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tests::mctp_util::base_protocol::LOCAL_TEST_ENDPOINT_EID;
-use tests::pldm_request_response_test::PldmRequestResponseTest;
 
 pub static MCU_RUNTIME_STARTED: AtomicBool = AtomicBool::new(false);
 pub static EMULATOR_RUNNING: AtomicBool = AtomicBool::new(true);
