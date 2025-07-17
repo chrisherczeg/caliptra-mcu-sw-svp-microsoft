@@ -26,11 +26,10 @@ use clap::Parser;
 use std::cell::RefCell;
 use std::io;
 use std::io::IsTerminal;
-use std::process::exit;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-
+use caliptra_emu_cpu::StepAction;
 use crate::emulator::EmulatorArgs;
 
 pub static MCU_RUNTIME_STARTED: AtomicBool = AtomicBool::new(false);
@@ -45,8 +44,10 @@ pub fn wait_for_runtime_start() {
 // CPU Main Loop (free_run no GDB)
 fn free_run(mut emulator: crate::emulator::Emulator) {
     while EMULATOR_RUNNING.load(std::sync::atomic::Ordering::Relaxed) {
-        if !emulator.step() {
-            break;
+        match emulator.step() {
+            StepAction::Break => break,
+            StepAction::Fatal => break,
+            _ => {}
         }
     }
 }
@@ -71,15 +72,19 @@ fn run(cli: EmulatorArgs, capture_uart_output: bool) -> io::Result<Vec<u8>> {
         None
     };
 
+    let emulator = crate::emulator::Emulator::from_args(cli.clone(), capture_uart_output)?;
+
     // Check if Optional GDB Port is passed
     match cli.gdb_port {
-        Some(_port) => {
-            println!("Caliptra CPU cannot be started with GDB enabled");
-            exit(-1);
+        Some(port) => {
+            // Create GDB Target Instance
+            let mut gdb_target = gdb::gdb_target::GdbTarget::new(emulator);
+
+            // Execute CPU through GDB State Machine
+            gdb::gdb_state::wait_for_gdb_run(&mut gdb_target, port);
         }
         _ => {
             // Create the emulator with all the setup
-            let emulator = crate::emulator::Emulator::from_args(cli, capture_uart_output)?;
             free_run(emulator);
         }
     }

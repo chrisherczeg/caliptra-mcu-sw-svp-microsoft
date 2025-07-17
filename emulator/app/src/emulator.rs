@@ -51,7 +51,7 @@ use std::sync::{Arc, Mutex};
 use tests::mctp_util::base_protocol::LOCAL_TEST_ENDPOINT_EID;
 use tests::pldm_request_response_test::PldmRequestResponseTest;
 
-#[derive(Parser)]
+#[derive(Parser, Debug, Clone)]
 #[command(version, about, long_about = None, name = "Caliptra MCU Emulator")]
 pub struct EmulatorArgs {
     /// ROM binary path
@@ -226,13 +226,13 @@ pub struct EmulatorArgs {
 }
 
 pub struct Emulator {
-    mcu_cpu: Cpu<AutoRootBus>,
-    caliptra_cpu: CaliptraMainCpu<CaliptraMainRootBus>,
-    bmc: Option<Bmc>,
-    timer: Timer,
-    trace_file: Option<File>,
-    stdin_uart: Option<Arc<Mutex<Option<u8>>>>,
-    sram_range: Range<u32>,
+    pub mcu_cpu: Cpu<AutoRootBus>,
+    pub caliptra_cpu: CaliptraMainCpu<CaliptraMainRootBus>,
+    pub bmc: Option<Bmc>,
+    pub timer: Timer,
+    pub trace_file: Option<File>,
+    pub stdin_uart: Option<Arc<Mutex<Option<u8>>>>,
+    pub sram_range: Range<u32>,
 }
 
 impl Emulator {
@@ -852,9 +852,9 @@ impl Emulator {
         }
     }
 
-    pub fn step(&mut self) -> bool {
+    pub fn step(&mut self) -> StepAction {
         if !EMULATOR_RUNNING.load(Ordering::Relaxed) {
-            return false;
+            return StepAction::Break;
         }
 
         if let Some(ref stdin_uart) = self.stdin_uart {
@@ -880,7 +880,7 @@ impl Emulator {
         };
 
         if action != StepAction::Continue {
-            return false;
+            return action;
         }
 
         if self.sram_range.contains(&self.mcu_cpu.read_pc()) {
@@ -913,7 +913,7 @@ impl Emulator {
             bmc.step();
         }
 
-        true
+        action
     }
 }
 
