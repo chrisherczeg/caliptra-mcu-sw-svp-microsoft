@@ -14,17 +14,18 @@ Abstract:
 
 use crate::dis;
 use crate::doe_mbox_fsm;
+use crate::elf;
 use crate::i3c_socket;
 use crate::i3c_socket::start_i3c_socket;
 use crate::mctp_transport::MctpTransport;
-use crate::read_console;
 use crate::tests;
-use crate::{read_binary, Args};
+use crate::Args;
 use crate::{EMULATOR_RUNNING, MCU_RUNTIME_STARTED};
 use caliptra_emu_bus::{Bus, Clock, Timer};
 use caliptra_emu_cpu::{Cpu, Pic, RvInstr, StepAction};
 use caliptra_emu_cpu::{Cpu as CaliptraMainCpu, StepAction as CaliptraMainStepAction};
 use caliptra_emu_periph::CaliptraRootBus as CaliptraMainRootBus;
+use crossterm::event::{Event, KeyCode, KeyEvent};
 use emulator_bmc::Bmc;
 use emulator_caliptra::{start_caliptra, StartCaliptraArgs};
 use emulator_consts::{DEFAULT_CPU_ARGS, RAM_ORG, ROM_SIZE};
@@ -39,7 +40,7 @@ use pldm_ua::daemon::PldmDaemon;
 use pldm_ua::transport::{EndpointId, PldmTransport};
 use std::cell::RefCell;
 use std::fs::File;
-use std::io::{IsTerminal, Read, Write};
+use std::io::{self, IsTerminal, Read, Write};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::process::exit;
@@ -748,4 +749,76 @@ fn disassemble(pc: u32, instr: u32) -> String {
     write!(&mut out, "0x{:08x}   {}", pc, dis).unwrap();
 
     String::from_utf8(out).unwrap()
+}
+
+fn read_console(stdin_uart: Option<Arc<Mutex<Option<u8>>>>) {
+    let mut buffer = vec![];
+    if let Some(ref stdin_uart) = stdin_uart {
+        while EMULATOR_RUNNING.load(std::sync::atomic::Ordering::Relaxed) {
+            if buffer.is_empty() {
+                match crossterm::event::read() {
+                    Ok(Event::Key(KeyEvent {
+                        code: KeyCode::Char(ch),
+                        ..
+                    })) => {
+                        buffer.extend_from_slice(ch.to_string().as_bytes());
+                    }
+                    Ok(Event::Key(KeyEvent {
+                        code: KeyCode::Enter,
+                        ..
+                    })) => {
+                        buffer.push(b'\n');
+                    }
+                    Ok(Event::Key(KeyEvent {
+                        code: KeyCode::Backspace,
+                        ..
+                    })) => {
+                        if !buffer.is_empty() {
+                            buffer.pop();
+                        } else {
+                            buffer.push(8);
+                        }
+                    }
+                    _ => {} // ignore other keys
+                }
+            } else {
+                let mut stdin_uart = stdin_uart.lock().unwrap();
+                if stdin_uart.is_none() {
+                    *stdin_uart = Some(buffer.remove(0));
+                }
+            }
+            std::thread::yield_now();
+        }
+    }
+}
+
+fn read_binary(path: &PathBuf, expect_load_addr: u32) -> io::Result<Vec<u8>> {
+    let mut file = File::open(path)?;
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)?;
+
+    // Check if this is an ELF
+    if buffer.starts_with(&[0x7f, 0x45, 0x4c, 0x46]) {
+        println!("Loading ELF executable {}", path.display());
+        let elf = elf::ElfExecutable::new(&buffer).unwrap();
+        if elf.load_addr() != expect_load_addr {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "ELF executable has non-0x{:x} load address, which is not supported (got 0x{:x})",
+                    expect_load_addr, elf.load_addr()
+                ),
+            ))?;
+        }
+        // TBF files have an entry point offset by 0x20
+        if elf.entry_point() != expect_load_addr && elf.entry_point() != elf.load_addr() + 0x20 {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("ELF executable has non-0x{:x} entry point, which is not supported (got 0x{:x})", expect_load_addr, elf.entry_point()),
+            ))?;
+        }
+        buffer = elf.content().clone();
+    }
+
+    Ok(buffer)
 }

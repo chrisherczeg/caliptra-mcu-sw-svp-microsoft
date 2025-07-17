@@ -24,16 +24,13 @@ mod tests;
 
 use clap::{ArgAction, Parser};
 use clap_num::maybe_hex;
-use crossterm::event::{Event, KeyCode, KeyEvent};
 use std::cell::RefCell;
-use std::fs::File;
 use std::io;
-use std::io::{IsTerminal, Read};
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::exit;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 pub static MCU_RUNTIME_STARTED: AtomicBool = AtomicBool::new(false);
@@ -219,47 +216,6 @@ struct Args {
     lc_size: Option<u32>,
 }
 
-fn read_console(stdin_uart: Option<Arc<Mutex<Option<u8>>>>) {
-    let mut buffer = vec![];
-    if let Some(ref stdin_uart) = stdin_uart {
-        while EMULATOR_RUNNING.load(std::sync::atomic::Ordering::Relaxed) {
-            if buffer.is_empty() {
-                match crossterm::event::read() {
-                    Ok(Event::Key(KeyEvent {
-                        code: KeyCode::Char(ch),
-                        ..
-                    })) => {
-                        buffer.extend_from_slice(ch.to_string().as_bytes());
-                    }
-                    Ok(Event::Key(KeyEvent {
-                        code: KeyCode::Enter,
-                        ..
-                    })) => {
-                        buffer.push(b'\n');
-                    }
-                    Ok(Event::Key(KeyEvent {
-                        code: KeyCode::Backspace,
-                        ..
-                    })) => {
-                        if !buffer.is_empty() {
-                            buffer.pop();
-                        } else {
-                            buffer.push(8);
-                        }
-                    }
-                    _ => {} // ignore other keys
-                }
-            } else {
-                let mut stdin_uart = stdin_uart.lock().unwrap();
-                if stdin_uart.is_none() {
-                    *stdin_uart = Some(buffer.remove(0));
-                }
-            }
-            std::thread::yield_now();
-        }
-    }
-}
-
 // CPU Main Loop (free_run no GDB)
 fn free_run(mut emulator: crate::emulator::Emulator) {
     while EMULATOR_RUNNING.load(std::sync::atomic::Ordering::Relaxed) {
@@ -272,37 +228,6 @@ fn free_run(mut emulator: crate::emulator::Emulator) {
 fn main() -> io::Result<()> {
     let cli = Args::parse();
     run(cli, false).map(|_| ())
-}
-
-fn read_binary(path: &PathBuf, expect_load_addr: u32) -> io::Result<Vec<u8>> {
-    let mut file = File::open(path)?;
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer)?;
-
-    // Check if this is an ELF
-    if buffer.starts_with(&[0x7f, 0x45, 0x4c, 0x46]) {
-        println!("Loading ELF executable {}", path.display());
-        let elf = elf::ElfExecutable::new(&buffer).unwrap();
-        if elf.load_addr() != expect_load_addr {
-            Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!(
-                    "ELF executable has non-0x{:x} load address, which is not supported (got 0x{:x})",
-                    expect_load_addr, elf.load_addr()
-                ),
-            ))?;
-        }
-        // TBF files have an entry point offset by 0x20
-        if elf.entry_point() != expect_load_addr && elf.entry_point() != elf.load_addr() + 0x20 {
-            Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("ELF executable has non-0x{:x} entry point, which is not supported (got 0x{:x})", expect_load_addr, elf.entry_point()),
-            ))?;
-        }
-        buffer = elf.content().clone();
-    }
-
-    Ok(buffer)
 }
 
 fn run(cli: Args, capture_uart_output: bool) -> io::Result<Vec<u8>> {
