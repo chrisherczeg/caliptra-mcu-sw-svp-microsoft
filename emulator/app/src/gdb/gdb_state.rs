@@ -20,7 +20,6 @@ use gdbstub::target::Target;
 use std::net::TcpListener;
 
 struct GdbEventLoop {
-    // Remove phantom type since we're no longer generic over Bus
 }
 
 // The `run_blocking::BlockingEventLoop` groups together various callbacks
