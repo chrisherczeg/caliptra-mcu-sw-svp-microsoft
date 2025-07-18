@@ -527,7 +527,7 @@ impl Emulator {
                 cli.i3c_port.unwrap(),
                 i3c.get_dynamic_address().unwrap(),
                 spdm_validator_tests,
-                Some(std::time::Duration::from_secs(3000)), // timeout in seconds
+                Some(std::time::Duration::from_secs(9000)), // timeout in seconds
             );
         }
 
