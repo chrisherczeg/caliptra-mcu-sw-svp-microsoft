@@ -1,0 +1,17 @@
+# Licensed under the Apache-2.0 license
+
+[package]
+name = "emulator-cbinding"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "emulator_cbinding"
+crate-type = ["staticlib", "cdylib"]
+
+[dependencies]
+emulator = { path = "../app" }
+libc.workspace = true
+
+[build-dependencies]
+cbindgen.workspace = true
