@@ -171,3 +171,29 @@ void emulator_destroy(struct CEmulator *emulator_memory);
 int emulator_get_uart_output(struct CEmulator *emulator_memory,
                              char *output_buffer,
                              size_t buffer_size);
+
+/**
+ * Start GDB server and wait for connection (blocking)
+ * Only call this if emulator was initialized with a GDB port.
+ * 
+ * # Returns
+ * * Success when GDB session ends normally
+ * * Appropriate error code on failure
+ */
+EmulatorError emulator_run_gdb_server(struct CEmulator *emulator_memory);
+
+/**
+ * Check if the emulator is in GDB mode
+ * 
+ * # Returns
+ * * 1 if in GDB mode, 0 if in normal mode
+ */
+int emulator_is_gdb_mode(struct CEmulator *emulator_memory);
+
+/**
+ * Get the GDB port if the emulator is in GDB mode
+ * 
+ * # Returns
+ * * GDB port number, or 0 if not in GDB mode
+ */
+unsigned int emulator_get_gdb_port(struct CEmulator *emulator_memory);

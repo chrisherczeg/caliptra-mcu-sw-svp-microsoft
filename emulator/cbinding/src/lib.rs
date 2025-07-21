@@ -12,7 +12,7 @@ Abstract:
 
 --*/
 
-use emulator::{Emulator, EmulatorArgs};
+use emulator::{Emulator, EmulatorArgs, gdb};
 use caliptra_emu_cpu::StepAction;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_uint, c_uchar};
@@ -21,6 +21,18 @@ use std::mem::ManuallyDrop;
 
 #[cfg(test)]
 mod simple_test;
+
+/// Internal emulator wrapper that can be in normal or GDB mode
+enum EmulatorWrapper {
+    Normal(Emulator),
+    Gdb(gdb::gdb_target::GdbTarget),
+}
+
+/// Internal state for the C emulator instance
+struct CEmulatorState {
+    wrapper: EmulatorWrapper,
+    gdb_port: Option<u16>, // Store GDB port for later use
+}
 
 /// Error codes for C API
 #[repr(C)]
@@ -126,13 +138,13 @@ pub struct CEmulatorConfig {
 /// This allows C code to allocate the right amount of memory
 #[no_mangle]
 pub extern "C" fn emulator_get_size() -> usize {
-    std::mem::size_of::<Emulator>()
+    std::mem::size_of::<CEmulatorState>()
 }
 
 /// Get the alignment required for the emulator structure
 #[no_mangle]
 pub extern "C" fn emulator_get_alignment() -> usize {
-    std::mem::align_of::<Emulator>()
+    std::mem::align_of::<CEmulatorState>()
 }
 
 /// Initialize an emulator in the provided memory location
@@ -254,14 +266,35 @@ pub unsafe extern "C" fn emulator_init(
         Err(_) => return EmulatorError::InitializationFailed,
     };
 
-    // Place the emulator in the provided memory
-    let emulator_ptr = emulator_memory as *mut Emulator;
-    ptr::write(emulator_ptr, emulator);
+    // Determine if we should be in GDB mode based on config
+    let gdb_port = if config.gdb_port == 0 { None } else { Some(config.gdb_port as u16) };
+    
+    // Create the emulator state - if GDB port specified, start in GDB mode
+    let emulator_state = if let Some(port) = gdb_port {
+        CEmulatorState {
+            wrapper: EmulatorWrapper::Gdb(gdb::gdb_target::GdbTarget::new(emulator)),
+            gdb_port: Some(port),
+        }
+    } else {
+        CEmulatorState {
+            wrapper: EmulatorWrapper::Normal(emulator),
+            gdb_port: None,
+        }
+    };
+
+    // Place the emulator state in the provided memory
+    let emulator_ptr = emulator_memory as *mut CEmulatorState;
+    ptr::write(emulator_ptr, emulator_state);
 
     EmulatorError::Success
 }
 
 /// Step the emulator once
+/// 
+/// This function works in both normal and GDB modes:
+/// - **Normal mode**: Steps the emulator directly
+/// - **GDB mode**: Steps the underlying emulator, allowing C to control execution
+///   while GDB server is available for debugging/inspection
 /// 
 /// # Arguments
 /// * `emulator_memory` - Pointer to the initialized emulator
@@ -277,10 +310,20 @@ pub unsafe extern "C" fn emulator_step(emulator_memory: *mut CEmulator) -> CStep
         return CStepAction::ExitFailure;
     }
 
-    let emulator_ptr = emulator_memory as *mut Emulator;
-    let emulator = &mut *emulator_ptr;
-    let action = emulator.step();
-    action.into()
+    let emulator_ptr = emulator_memory as *mut CEmulatorState;
+    let emulator_state = &mut *emulator_ptr;
+    
+    match &mut emulator_state.wrapper {
+        EmulatorWrapper::Normal(emulator) => {
+            let action = emulator.step();
+            action.into()
+        }
+        EmulatorWrapper::Gdb(gdb_target) => {
+            // In GDB mode, step the underlying emulator directly
+            let action = gdb_target.emulator_mut().step();
+            action.into()
+        }
+    }
 }
 
 /// Destroy the emulator and clean up resources
@@ -294,7 +337,7 @@ pub unsafe extern "C" fn emulator_step(emulator_memory: *mut CEmulator) -> CStep
 #[no_mangle]
 pub unsafe extern "C" fn emulator_destroy(emulator_memory: *mut CEmulator) {
     if !emulator_memory.is_null() {
-        let emulator_ptr = emulator_memory as *mut Emulator;
+        let emulator_ptr = emulator_memory as *mut CEmulatorState;
         ptr::drop_in_place(emulator_ptr);
     }
 }
@@ -322,11 +365,16 @@ pub unsafe extern "C" fn emulator_get_uart_output(
         return -1;
     }
 
-    let emulator_ptr = emulator_memory as *mut Emulator;
-    let emulator = &mut *emulator_ptr;
+    let emulator_ptr = emulator_memory as *mut CEmulatorState;
+    let emulator_state = &mut *emulator_ptr;
 
-    if let Some(ref uart_output) = emulator.uart_output {
-        let uart_data = uart_output.borrow();
+    let uart_output = match &emulator_state.wrapper {
+        EmulatorWrapper::Normal(emulator) => &emulator.uart_output,
+        EmulatorWrapper::Gdb(gdb_target) => &gdb_target.emulator().uart_output,
+    };
+
+    if let Some(ref uart_output_rc) = uart_output {
+        let uart_data = uart_output_rc.borrow();
         let copy_len = std::cmp::min(uart_data.len(), buffer_size - 1);
         
         if copy_len > 0 {
@@ -343,6 +391,97 @@ pub unsafe extern "C" fn emulator_get_uart_output(
     } else {
         -1
     }
+}
+
+/// Start GDB server and wait for connection (blocking)
+/// This function should only be called if the emulator was initialized with a GDB port.
+/// 
+/// IMPORTANT: There are two ways to use GDB mode:
+/// 
+/// 1. **GDB-controlled execution**: Call this function and let GDB control all stepping.
+///    The GDB server will handle all emulator execution and stepping commands.
+///    Do NOT call emulator_step() while this function is running.
+/// 
+/// 2. **C-controlled execution with GDB debugging**: DON'T call this function.
+///    Instead, call emulator_step() normally to control execution from C.
+///    Connect GDB to the port and use GDB for debugging/inspection only.
+///    In this mode, GDB can inspect state but C controls when steps happen.
+/// 
+/// # Arguments
+/// * `emulator_memory` - Pointer to the initialized emulator in GDB mode
+/// 
+/// # Returns
+/// * `EmulatorError::Success` when GDB session ends normally
+/// * Appropriate error code on failure
+/// 
+/// # Safety
+/// * `emulator_memory` must point to a valid, initialized emulator in GDB mode
+#[no_mangle]
+pub unsafe extern "C" fn emulator_run_gdb_server(
+    emulator_memory: *mut CEmulator,
+) -> EmulatorError {
+    if emulator_memory.is_null() {
+        return EmulatorError::NullPointer;
+    }
+
+    let emulator_ptr = emulator_memory as *mut CEmulatorState;
+    let emulator_state = &mut *emulator_ptr;
+
+    match (&mut emulator_state.wrapper, emulator_state.gdb_port) {
+        (EmulatorWrapper::Gdb(gdb_target), Some(port)) => {
+            gdb::gdb_state::wait_for_gdb_run(gdb_target, port);
+            EmulatorError::Success
+        }
+        (EmulatorWrapper::Normal(_), _) => EmulatorError::InvalidArgs,
+        (EmulatorWrapper::Gdb(_), None) => EmulatorError::InvalidArgs,
+    }
+}
+
+/// Check if the emulator is in GDB mode
+/// 
+/// # Arguments
+/// * `emulator_memory` - Pointer to the initialized emulator
+/// 
+/// # Returns
+/// * 1 if in GDB mode, 0 if in normal mode
+/// 
+/// # Safety
+/// * `emulator_memory` must point to a valid, initialized emulator
+#[no_mangle]
+pub unsafe extern "C" fn emulator_is_gdb_mode(emulator_memory: *mut CEmulator) -> c_int {
+    if emulator_memory.is_null() {
+        return 0;
+    }
+
+    let emulator_ptr = emulator_memory as *mut CEmulatorState;
+    let emulator_state = &*emulator_ptr;
+    
+    match emulator_state.wrapper {
+        EmulatorWrapper::Gdb(_) => 1,
+        EmulatorWrapper::Normal(_) => 0,
+    }
+}
+
+/// Get the GDB port if the emulator is in GDB mode
+/// 
+/// # Arguments
+/// * `emulator_memory` - Pointer to the initialized emulator
+/// 
+/// # Returns
+/// * GDB port number, or 0 if not in GDB mode
+/// 
+/// # Safety
+/// * `emulator_memory` must point to a valid, initialized emulator
+#[no_mangle]
+pub unsafe extern "C" fn emulator_get_gdb_port(emulator_memory: *mut CEmulator) -> c_uint {
+    if emulator_memory.is_null() {
+        return 0;
+    }
+
+    let emulator_ptr = emulator_memory as *mut CEmulatorState;
+    let emulator_state = &*emulator_ptr;
+    
+    emulator_state.gdb_port.unwrap_or(0) as c_uint
 }
 
 // Helper functions

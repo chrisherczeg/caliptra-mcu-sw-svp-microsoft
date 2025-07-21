@@ -4,7 +4,14 @@ This crate provides C bindings for the Caliptra MCU Emulator, allowing the emula
 
 ## Features
 
-- **Zero-copy integration**: The emulator state is stored in C-allocated memory
+- **Ze#### Connecting with GDB**: The emula#### Important Notes
+
+- When GDB port is set (non-zero), the emulator starts in GDB mode
+- `emulator_step()` works in both normal and GDB modes
+- In GDB mode, you can choose between C-controlled stepping or GDB-controlled execution
+- The GDB server runs on the specified port and accepts standard GDB remote protocol commands
+- Use `emulator_run_gdb_server()` for blocking GDB sessions where GDB controls execution
+- Use repeated `emulator_step()` calls when you want C code to control execution pacee is stored in C-allocated memory
 - **Static library output**: Compiles to a static library for easy integration
 - **Memory safety**: Proper lifetime management with C-controlled allocation
 - **No changes to emulator.rs**: The original emulator code remains untouched
@@ -56,75 +63,26 @@ The C code is responsible for allocating memory for the emulator:
 #include "emulator_cbinding.h"
 
 // Get memory requirements
-size_t size = emulator_get_size();
-size_t alignment = emulator_get_alignment();
+size_t size = emulator_size_required();
 
-// Allocate aligned memory
-void* emulator_memory = aligned_alloc(alignment, size);
+// Allocate aligned memory (8-byte alignment)
+void* emulator_memory = aligned_alloc(8, size);
 ```
 
 ### 2. Configuration
 
-Configure the emulator using the `CEmulatorConfig` structure:
+Configure the emulator using the `EmulatorArgs` structure:
 
 ```c
-CEmulatorConfig config = {
-    .rom_path = "path/to/rom.bin",
-    .firmware_path = "path/to/firmware.bin",
-    .caliptra_rom_path = "path/to/caliptra_rom.bin",
-    .caliptra_firmware_path = "path/to/caliptra_firmware.bin",
-    .soc_manifest_path = "path/to/soc_manifest.bin",
-    .otp_path = NULL,                    // Optional
-    .log_dir_path = NULL,               // Optional
-    .gdb_port = 0,                      // 0 = disabled
-    .i3c_port = 0,                      // 0 = disabled
-    .trace_instr = 0,                   // 0 = false, 1 = true
-    .stdin_uart = 0,                    // 0 = false, 1 = true
-    .manufacturing_mode = 0,            // 0 = false, 1 = true
-    .capture_uart_output = 1,           // 0 = false, 1 = true
-    .vendor_pk_hash = NULL,             // Optional
-    .owner_pk_hash = NULL,              // Optional
-    .streaming_boot_path = NULL,        // Optional
-    .primary_flash_image_path = NULL,   // Optional
-    .secondary_flash_image_path = NULL, // Optional
-    .hw_revision_major = 2,
-    .hw_revision_minor = 0,
-    .hw_revision_patch = 0,
-    
-    // Memory layout overrides (0 = use defaults)
-    .rom_offset = 0,                    // Custom ROM base address
-    .rom_size = 0,                      // Custom ROM size
-    .uart_offset = 0,                   // Custom UART base address
-    .uart_size = 0,                     // Custom UART size
-    .ctrl_offset = 0,                   // Custom control register base
-    .ctrl_size = 0,                     // Custom control register size
-    .spi_offset = 0,                    // Custom SPI base address
-    .spi_size = 0,                      // Custom SPI size
-    .sram_offset = 0,                   // Custom SRAM base address
-    .sram_size = 0,                     // Custom SRAM size
-    .pic_offset = 0,                    // Custom PIC base address
-    .external_test_sram_offset = 0,     // Custom external test SRAM base
-    .external_test_sram_size = 0,       // Custom external test SRAM size
-    .dccm_offset = 0,                   // Custom DCCM base address
-    .dccm_size = 0,                     // Custom DCCM size
-    .i3c_offset = 0,                    // Custom I3C base address
-    .i3c_size = 0,                      // Custom I3C size
-    .primary_flash_offset = 0,          // Custom primary flash base
-    .primary_flash_size = 0,            // Custom primary flash size
-    .secondary_flash_offset = 0,        // Custom secondary flash base
-    .secondary_flash_size = 0,          // Custom secondary flash size
-    .mci_offset = 0,                    // Custom MCI base address
-    .mci_size = 0,                      // Custom MCI size
-    .dma_offset = 0,                    // Custom DMA base address
-    .dma_size = 0,                      // Custom DMA size
-    .mbox_offset = 0,                   // Custom mailbox base address
-    .mbox_size = 0,                     // Custom mailbox size
-    .soc_offset = 0,                    // Custom SoC interface base
-    .soc_size = 0,                      // Custom SoC interface size
-    .otp_offset = 0,                    // Custom OTP base address
-    .otp_size = 0,                      // Custom OTP size
-    .lc_offset = 0,                     // Custom LC base address
-    .lc_size = 0,                       // Custom LC size
+EmulatorArgs args = {
+    .soc_address_hi = 0x00000000,      // High 32 bits of SoC address
+    .soc_address_lo = 0x40000000,      // Low 32 bits of SoC address
+    .soc_size = 0x800000,              // SoC memory size (8MB)
+    .uc_address_hi = 0x00000000,       // High 32 bits of uC address
+    .uc_address_lo = 0x50000000,       // Low 32 bits of uC address  
+    .uc_size = 0x10000,                // uC memory size (64KB)
+    .soc_manifest = "/path/to/manifest", // Path to SoC manifest file
+    .gdb_port = 0                      // GDB port (0 = disabled)
 };
 ```
 
@@ -133,7 +91,7 @@ CEmulatorConfig config = {
 Initialize the emulator in the allocated memory:
 
 ```c
-EmulatorError result = emulator_init((CEmulator*)emulator_memory, &config);
+EmulatorError result = emulator_init((struct CEmulator*)emulator_memory, &args);
 if (result != Success) {
     // Handle error
     free(emulator_memory);
@@ -146,26 +104,23 @@ if (result != Success) {
 Step the emulator in a loop:
 
 ```c
-CStepAction action;
+EmulatorError result;
 do {
-    action = emulator_step((CEmulator*)emulator_memory);
+    result = emulator_step((struct CEmulator*)emulator_memory);
     
-    // Handle different step actions
-    switch (action) {
-        case Continue:
-            // Emulator continues normally
+    // Handle different results
+    switch (result) {
+        case Success:
+            // Emulator step completed successfully
             break;
-        case Break:
-            // Breakpoint or debug break
+        case StepComplete:
+            // Emulator finished execution
             break;
-        case ExitSuccess:
-            // Emulator exited successfully
-            break;
-        case ExitFailure:
-            // Emulator exited with error
+        default:
+            // Error occurred
             break;
     }
-} while (action == Continue);
+} while (result == Success);
 ```
 
 ### 5. UART Output
@@ -190,9 +145,144 @@ if (bytes_read > 0) {
 Always clean up when done:
 
 ```c
-emulator_destroy((CEmulator*)emulator_memory);
+emulator_destroy((struct CEmulator*)emulator_memory);
 free(emulator_memory);
 ```
+
+## GDB Integration
+
+The emulator supports GDB debugging through a built-in GDB server. When enabled, you can connect with `gdb` to debug the emulated firmware.
+
+### Setting up GDB Mode
+
+```c
+// Configure emulator with GDB support
+EmulatorArgs args = {
+    .soc_address_hi = 0x00000000,
+    .soc_address_lo = 0x40000000,
+    .soc_size = 0x800000,
+    .uc_address_hi = 0x00000000,
+    .uc_address_lo = 0x50000000,
+    .uc_size = 0x10000,
+    .soc_manifest = "/path/to/manifest",
+    .gdb_port = 3333  // Enable GDB on port 3333
+};
+
+EmulatorError result = emulator_init(memory, &args);
+```
+
+### GDB Usage Patterns
+
+**Pattern 1: C-Controlled Execution with GDB Available**
+```c
+// Initialize emulator with GDB port
+emulator_init(memory, &args);
+
+// Check if we're in GDB mode
+if (emulator_is_gdb_mode(memory)) {
+    printf("GDB server available on port %u\n", emulator_get_gdb_port(memory));
+    printf("Connect with: gdb -ex 'target remote :3333'\n");
+}
+
+// Your C code controls execution stepping
+for (int i = 0; i < 1000; i++) {
+    result = emulator_step(memory);  // Works in both normal and GDB modes
+    if (result != Success) {
+        break;
+    }
+    
+    // You can still get UART output, check state, etc.
+    char output[256];
+    int len = emulator_get_uart_output(memory, output, sizeof(output));
+    if (len > 0) {
+        printf("UART: %.*s\n", len, output);
+    }
+}
+```
+
+**Pattern 2: GDB-Controlled Execution**
+```c
+// Initialize emulator with GDB port
+emulator_init(memory, &args);
+
+if (emulator_is_gdb_mode(memory)) {
+    printf("Starting GDB server on port %u\n", emulator_get_gdb_port(memory));
+    printf("Connect with: gdb -ex 'target remote :%u'\n", emulator_get_gdb_port(memory));
+    
+    // This will block until GDB session ends
+    EmulatorError result = emulator_run_gdb_server(memory);
+    
+    if (result == Success) {
+        printf("GDB session completed\n");
+    } else {
+        printf("GDB session failed\n");
+    }
+}
+```
+
+**Pattern 3: Hybrid Control**
+```c
+// Start with C-controlled stepping for initialization
+emulator_init(memory, &args);
+
+// Run some initialization steps under C control
+for (int i = 0; i < 100; i++) {
+    emulator_step(memory);
+}
+
+printf("Initialization complete. Starting GDB server...\n");
+
+// Then hand over control to GDB for debugging
+if (emulator_is_gdb_mode(memory)) {
+    emulator_run_gdb_server(memory);
+}
+```
+
+**Pattern 3: Hybrid Control**
+```c
+// Start with C-controlled stepping for initialization
+emulator_init(memory, &args);
+
+// Run some initialization steps under C control
+for (int i = 0; i < 100; i++) {
+    emulator_step(memory);
+}
+
+printf("Initialization complete. Starting GDB server...\n");
+
+// Then hand over control to GDB for debugging
+if (emulator_is_gdb_mode(memory)) {
+    emulator_run_gdb_server(memory);
+}
+```
+
+### Connecting with GDB
+
+Once the emulator is running with GDB support:
+
+```bash
+# Start gdb with your firmware binary
+gdb firmware.elf
+
+# Connect to the emulator
+(gdb) target remote :3333
+
+# Now you can use standard gdb commands:
+(gdb) break main
+(gdb) continue
+(gdb) step
+(gdb) info registers
+(gdb) x/10x $sp
+```
+
+### Important Notes
+
+- When GDB port is set (non-zero), the emulator starts in GDB mode
+- `emulator_step()` works in both normal and GDB modes
+- In GDB mode, you can choose between C-controlled stepping or GDB-controlled execution
+- The GDB server runs on the specified port and accepts standard GDB remote protocol commands
+- Use `emulator_run_gdb_server()` for blocking GDB sessions where GDB controls execution
+- Use repeated `emulator_step()` calls when you want C code to control execution pace
 
 ## Error Handling
 
@@ -205,68 +295,21 @@ typedef enum {
     InitializationFailed = -2,
     NullPointer = -3,
     InvalidEmulator = -4,
+    StepComplete = -5,
+    GdbError = -6,
 } EmulatorError;
 ```
 
-## Step Actions
+## Configuration Parameters
 
-The emulator step function returns action codes:
+The `EmulatorArgs` structure provides memory layout configuration:
 
-```c
-typedef enum {
-    Continue = 0,
-    Break = 1,
-    ExitSuccess = 2,
-    ExitFailure = 3,
-} CStepAction;
-```
-
-## Configuration Options
-
-The `CEmulatorConfig` structure exposes all emulator configuration:
-
-- **Required paths**: ROM, firmware, Caliptra ROM/firmware, SoC manifest
-- **Optional paths**: OTP file, log directory, flash images
-- **Network**: GDB port, I3C port
-- **Behavior**: Instruction tracing, UART capture, manufacturing mode
-- **Hardware**: Version numbers, address overrides
-
-### Memory Layout Customization
-
-All memory layout parameters support custom offset and size values:
-
-- **Set to 0**: Use default values from the emulator
-- **Set to non-zero**: Override with custom values
-
-Supported memory regions:
-- **ROM**: `rom_offset`, `rom_size`
-- **UART**: `uart_offset`, `uart_size`
-- **Control Registers**: `ctrl_offset`, `ctrl_size`
-- **SPI**: `spi_offset`, `spi_size`
-- **SRAM**: `sram_offset`, `sram_size`
-- **PIC**: `pic_offset`
-- **External Test SRAM**: `external_test_sram_offset`, `external_test_sram_size`
-- **DCCM**: `dccm_offset`, `dccm_size`
-- **I3C**: `i3c_offset`, `i3c_size`
-- **Primary Flash**: `primary_flash_offset`, `primary_flash_size`
-- **Secondary Flash**: `secondary_flash_offset`, `secondary_flash_size`
-- **MCI**: `mci_offset`, `mci_size`
-- **DMA**: `dma_offset`, `dma_size`
-- **Mailbox**: `mbox_offset`, `mbox_size`
-- **SoC Interface**: `soc_offset`, `soc_size`
-- **OTP**: `otp_offset`, `otp_size`
-- **LC (Lifecycle)**: `lc_offset`, `lc_size`
-
-Example of custom memory layout:
-```c
-CEmulatorConfig config = {
-    // ... other configuration ...
-    .rom_offset = 0x10000000,      // Custom ROM at 256MB
-    .rom_size = 0x100000,          // 1MB ROM size
-    .sram_offset = 0x20000000,     // Custom SRAM at 512MB
-    .sram_size = 0x800000,         // 8MB SRAM size
-    // ... other parameters set to 0 for defaults ...
-};
+- **soc_address_hi/lo**: High and low 32 bits of the SoC memory base address
+- **soc_size**: Size of the SoC memory region
+- **uc_address_hi/lo**: High and low 32 bits of the microcontroller memory base address
+- **uc_size**: Size of the microcontroller memory region
+- **soc_manifest**: Path to the SoC manifest file
+- **gdb_port**: GDB server port (0 = disabled)
 ```
 
 ## Integration Notes
@@ -281,7 +324,7 @@ When linking with the static library, you may need additional system libraries:
 
 ### Memory Alignment
 
-Always use `emulator_get_alignment()` to ensure proper memory alignment. Improper alignment can cause crashes or undefined behavior.
+Always use 8-byte alignment when allocating memory for the emulator. Improper alignment can cause crashes or undefined behavior.
 
 ### Thread Safety
 
@@ -300,9 +343,15 @@ See `example.c` for a complete working example that demonstrates:
 - Memory allocation and configuration
 - Emulator initialization and execution
 - UART output capture
+- GDB integration
 - Proper cleanup
 
-Run the example:
+Basic usage:
 ```bash
-./example rom.bin firmware.bin caliptra_rom.bin caliptra_firmware.bin soc_manifest.bin
+./example
+```
+
+GDB usage:
+```bash
+./example --gdb 3333
 ```
