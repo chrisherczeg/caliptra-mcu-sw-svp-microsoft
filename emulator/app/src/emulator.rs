@@ -836,6 +836,7 @@ impl Emulator {
         ))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         mcu_cpu: Cpu<AutoRootBus>,
         caliptra_cpu: CaliptraMainCpu<CaliptraMainRootBus>,
