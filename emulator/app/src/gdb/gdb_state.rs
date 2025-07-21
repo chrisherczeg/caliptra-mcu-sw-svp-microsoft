@@ -19,8 +19,7 @@ use gdbstub::stub::{run_blocking, DisconnectReason, GdbStub, GdbStubError};
 use gdbstub::target::Target;
 use std::net::TcpListener;
 
-struct GdbEventLoop {
-}
+struct GdbEventLoop {}
 
 // The `run_blocking::BlockingEventLoop` groups together various callbacks
 // the `GdbStub::run_blocking` event loop requires you to implement.
