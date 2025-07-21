@@ -233,6 +233,16 @@ pub struct Emulator {
     pub trace_file: Option<File>,
     pub stdin_uart: Option<Arc<Mutex<Option<u8>>>>,
     pub sram_range: Range<u32>,
+    #[allow(dead_code)]
+    pub clock: Rc<Clock>,
+    #[allow(dead_code)]
+    pub pic: Rc<Pic>,
+    #[allow(dead_code)]
+    pub uart_output: Option<Rc<RefCell<Vec<u8>>>>,
+    #[allow(dead_code)]
+    pub i3c_controller: I3cController,
+    #[allow(dead_code)]
+    pub doe_mbox_fsm: doe_mbox_fsm::DoeMboxFsm,
 }
 
 impl Emulator {
@@ -242,11 +252,6 @@ impl Emulator {
 
         if !Path::new(&args_rom).exists() {
             println!("ROM File {:?} does not exist", args_rom);
-            exit(-1);
-        }
-
-        if cli.gdb_port.is_some() {
-            println!("Caliptra CPU cannot be started with GDB enabled");
             exit(-1);
         }
 
@@ -710,7 +715,7 @@ impl Emulator {
 
         let cpu_args = DEFAULT_CPU_ARGS;
 
-        let mut cpu = Cpu::new(auto_root_bus, clock, pic, cpu_args);
+        let mut cpu = Cpu::new(auto_root_bus, clock.clone(), pic.clone(), cpu_args);
         cpu.write_pc(mcu_root_bus_offsets.rom_offset);
         cpu.register_events();
 
@@ -823,6 +828,11 @@ impl Emulator {
             stdin_uart,
             bmc,
             sram_range,
+            clock,
+            pic,
+            uart_output,
+            i3c_controller,
+            doe_mbox_fsm,
         ))
     }
 
@@ -833,6 +843,11 @@ impl Emulator {
         stdin_uart: Option<Arc<Mutex<Option<u8>>>>,
         bmc: Option<Bmc>,
         sram_range: Range<u32>,
+        clock: Rc<Clock>,
+        pic: Rc<Pic>,
+        uart_output: Option<Rc<RefCell<Vec<u8>>>>,
+        i3c_controller: I3cController,
+        doe_mbox_fsm: doe_mbox_fsm::DoeMboxFsm,
     ) -> Self {
         // read from the console in a separate thread to prevent blocking
         let stdin_uart_clone = stdin_uart.clone();
@@ -849,6 +864,11 @@ impl Emulator {
             trace_file,
             stdin_uart,
             sram_range,
+            clock,
+            pic,
+            uart_output,
+            i3c_controller,
+            doe_mbox_fsm,
         }
     }
 
