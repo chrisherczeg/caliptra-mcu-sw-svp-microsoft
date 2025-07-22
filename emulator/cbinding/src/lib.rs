@@ -14,10 +14,9 @@ Abstract:
 
 use emulator::{Emulator, EmulatorArgs, gdb};
 use caliptra_emu_cpu::StepAction;
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::os::raw::{c_char, c_int, c_uint, c_uchar};
 use std::ptr;
-use std::mem::ManuallyDrop;
 
 #[cfg(test)]
 mod simple_test;
@@ -60,8 +59,7 @@ impl From<StepAction> for CStepAction {
         match action {
             StepAction::Continue => CStepAction::Continue,
             StepAction::Break => CStepAction::Break,
-            StepAction::ExitSuccess => CStepAction::ExitSuccess,
-            StepAction::ExitFailure => CStepAction::ExitFailure,
+            StepAction::Fatal => CStepAction::ExitFailure,
         }
     }
 }

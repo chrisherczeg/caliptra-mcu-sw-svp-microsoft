@@ -12,6 +12,8 @@ crate-type = ["staticlib", "cdylib"]
 [dependencies]
 emulator = { path = "../app" }
 libc.workspace = true
+caliptra-emu-cpu.workspace = true
+semver.workspace = true
 
 [build-dependencies]
 cbindgen.workspace = true

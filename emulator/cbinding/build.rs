@@ -13,7 +13,6 @@ Abstract:
 --*/
 
 use std::env;
-use std::path::PathBuf;
 
 fn main() {
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
@@ -25,7 +24,7 @@ fn main() {
         .with_include_guard("EMULATOR_CBINDING_H")
         .with_pragma_once(true)
         .with_documentation(true)
-        .with_parse_deps(true)
+        .with_parse_deps(false)
         .include_item("EmulatorError")
         .include_item("CStepAction")
         .include_item("CEmulator")
