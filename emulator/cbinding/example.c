@@ -10,6 +10,9 @@ Abstract:
 
     Example C program demonstrating how to use the emulator C bindings,
     including both normal mode and GDB integration.
+    
+    This example also shows how to use the get_pc() function to retrieve
+    the current program counter value from the MCU CPU.
 
 --*/
 
@@ -114,6 +117,12 @@ int main(int argc, char *argv[]) {
                 if (output_len > 0) {
                     output[output_len] = '\0';
                     printf("UART: %s", output);
+                }
+                
+                // Show current PC value every 100 steps
+                if (i % 100 == 0) {
+                    unsigned int pc = get_pc((struct CEmulator*)memory);
+                    printf("Current PC: 0x%08x\n", pc);
                 }
             }
         }

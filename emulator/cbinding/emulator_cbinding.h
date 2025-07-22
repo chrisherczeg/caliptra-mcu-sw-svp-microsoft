@@ -233,4 +233,18 @@ int emulator_is_gdb_mode(struct CEmulator *emulator_memory);
  */
 unsigned int emulator_get_gdb_port(struct CEmulator *emulator_memory);
 
+/**
+ * Get the current program counter (PC) of the MCU CPU
+ *
+ * # Arguments
+ * * `emulator_memory` - Pointer to the initialized emulator
+ *
+ * # Returns
+ * * Current PC value of the MCU CPU
+ *
+ * # Safety
+ * * `emulator_memory` must point to a valid, initialized emulator
+ */
+unsigned int get_pc(struct CEmulator *emulator_memory);
+
 #endif /* EMULATOR_CBINDING_H */

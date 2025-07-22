@@ -936,6 +936,11 @@ impl Emulator {
 
         action
     }
+
+    /// Get the current program counter (PC) of the MCU CPU
+    pub fn get_pc(&self) -> u32 {
+        self.mcu_cpu.read_pc()
+    }
 }
 
 fn disassemble(pc: u32, instr: u32) -> String {

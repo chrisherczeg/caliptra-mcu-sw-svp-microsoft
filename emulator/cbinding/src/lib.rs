@@ -482,6 +482,31 @@ pub unsafe extern "C" fn emulator_get_gdb_port(emulator_memory: *mut CEmulator) 
     emulator_state.gdb_port.unwrap_or(0) as c_uint
 }
 
+/// Get the current program counter (PC) of the MCU CPU
+/// 
+/// # Arguments
+/// * `emulator_memory` - Pointer to the initialized emulator
+/// 
+/// # Returns
+/// * Current PC value of the MCU CPU
+/// 
+/// # Safety
+/// * `emulator_memory` must point to a valid, initialized emulator
+#[no_mangle]
+pub unsafe extern "C" fn get_pc(emulator_memory: *mut CEmulator) -> c_uint {
+    if emulator_memory.is_null() {
+        return 0;
+    }
+
+    let emulator_ptr = emulator_memory as *mut CEmulatorState;
+    let emulator_state = &*emulator_ptr;
+    
+    match &emulator_state.wrapper {
+        EmulatorWrapper::Normal(emulator) => emulator.get_pc(),
+        EmulatorWrapper::Gdb(gdb_target) => gdb_target.emulator().get_pc(),
+    }
+}
+
 // Helper functions
 
 unsafe fn convert_c_string(c_str: *const c_char) -> Result<String, std::str::Utf8Error> {

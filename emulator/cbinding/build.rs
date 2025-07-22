@@ -35,6 +35,7 @@ fn main() {
         .include_item("emulator_step")
         .include_item("emulator_destroy")
         .include_item("emulator_get_uart_output")
+        .include_item("get_pc")
         .generate()
         .expect("Unable to generate bindings")
         .write_to_file("emulator_cbinding.h");
