@@ -21,7 +21,7 @@ pub const SOCKET_HEADER_LEN: usize = 12;
 
 static SERVER_LISTENING: AtomicBool = AtomicBool::new(false);
 
-pub fn generate_tests() -> Vec<Box<dyn TestTrait + Send>> {
+pub(crate) fn generate_tests() -> Vec<Box<dyn TestTrait + Send>> {
     vec![Box::new(Test::new("SpdmValidatorTests")) as Box<dyn TestTrait + Send>]
 }
 
