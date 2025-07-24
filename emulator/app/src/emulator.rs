@@ -277,7 +277,7 @@ impl Emulator {
             use_mcu_recovery_interface = false;
         }
 
-        let (mut caliptra_cpu, soc_to_caliptra) = start_caliptra(&StartCaliptraArgs {
+        let (mut caliptra_cpu, soc_to_caliptra, ext_mci) = start_caliptra(&StartCaliptraArgs {
             rom: cli.caliptra_rom,
             device_lifecycle,
             req_idevid_csr,
@@ -430,6 +430,7 @@ impl Emulator {
         let root_bus = McuRootBus::new(bus_args).unwrap();
         let dma_ram = root_bus.ram.clone();
         let dma_rom_sram = root_bus.rom_sram.clone();
+        let direct_read_flash = root_bus.direct_read_flash.clone();
 
         let i3c_error_irq = pic.register_irq(McuRootBus::I3C_ERROR_IRQ);
         let i3c_notif_irq = pic.register_irq(McuRootBus::I3C_NOTIF_IRQ);
@@ -521,18 +522,27 @@ impl Emulator {
                 spdm_loopback_tests,
                 None,
             );
-        } else if cfg!(feature = "test-spdm-validator") {
+        } else if cfg!(feature = "test-mctp-spdm-responder-conformance") {
             if std::env::var("SPDM_VALIDATOR_DIR").is_err() {
                 println!("SPDM_VALIDATOR_DIR environment variable is not set. Skipping test");
                 exit(0);
             }
             i3c_controller.start();
-            let spdm_validator_tests = tests::spdm_validator::generate_tests();
-            i3c_socket::run_tests(
+            crate::tests::spdm_responder_validator::mctp::run_mctp_spdm_conformance_test(
                 cli.i3c_port.unwrap(),
                 i3c.get_dynamic_address().unwrap(),
-                spdm_validator_tests,
-                Some(std::time::Duration::from_secs(9000)), // timeout in seconds
+                std::time::Duration::from_secs(9000), // timeout in seconds
+            );
+        } else if cfg!(feature = "test-doe-spdm-responder-conformance") {
+            if std::env::var("SPDM_VALIDATOR_DIR").is_err() {
+                println!("SPDM_VALIDATOR_DIR environment variable is not set. Skipping test");
+                exit(0);
+            }
+            let (test_rx, test_tx) = doe_mbox_fsm.start();
+            crate::tests::spdm_responder_validator::doe::run_doe_spdm_conformance_test(
+                test_tx,
+                test_rx,
+                std::time::Duration::from_secs(9000), // timeout in seconds
             );
         }
 
@@ -561,7 +571,11 @@ impl Emulator {
         }
 
         let create_flash_controller =
-            |default_path: &str, error_irq: u8, event_irq: u8, initial_content: Option<&[u8]>| {
+            |default_path: &str,
+             error_irq: u8,
+             event_irq: u8,
+             initial_content: Option<&[u8]>,
+             direct_read_region: Option<Rc<RefCell<caliptra_emu_bus::Ram>>>| {
                 // Use a temporary file for flash storage if we're running a test
                 let flash_file = if cfg!(any(
                     feature = "test-flash-ctrl-init",
@@ -571,6 +585,8 @@ impl Emulator {
                     feature = "test-flash-storage-erase",
                     feature = "test-flash-usermode",
                     feature = "test-mcu-rom-flash-access",
+                    feature = "test-log-flash-linear",
+                    feature = "test-log-flash-circular",
                 )) {
                     Some(
                         tempfile::NamedTempFile::new()
@@ -584,6 +600,7 @@ impl Emulator {
 
                 DummyFlashCtrl::new(
                     &clock.clone(),
+                    direct_read_region,
                     flash_file,
                     pic.register_irq(error_irq),
                     pic.register_irq(event_irq),
@@ -615,6 +632,7 @@ impl Emulator {
             McuRootBus::PRIMARY_FLASH_CTRL_ERROR_IRQ,
             McuRootBus::PRIMARY_FLASH_CTRL_EVENT_IRQ,
             primary_flash_initial_content.as_deref(),
+            Some(direct_read_flash.clone()),
         );
 
         let secondary_flash_initial_content = if cli.secondary_flash_image.is_some() {
@@ -639,6 +657,7 @@ impl Emulator {
             McuRootBus::SECONDARY_FLASH_CTRL_ERROR_IRQ,
             McuRootBus::SECONDARY_FLASH_CTRL_EVENT_IRQ,
             secondary_flash_initial_content.as_deref(),
+            None,
         );
 
         let mut dma_ctrl = emulator_periph::DummyDmaCtrl::new(
@@ -663,7 +682,7 @@ impl Emulator {
         });
 
         let otp = Otp::new(&clock.clone(), cli.otp, owner_pk_hash, vendor_pk_hash)?;
-        let mci = Mci::new(&clock.clone());
+        let mci = Mci::new(&clock.clone(), ext_mci);
         let mut auto_root_bus = AutoRootBus::new(
             delegates,
             Some(auto_root_bus_offsets),
