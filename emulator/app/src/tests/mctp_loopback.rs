@@ -6,8 +6,8 @@ use crate::EMULATOR_RUNNING;
 use std::net::TcpStream;
 use std::sync::atomic::Ordering;
 
-pub(crate) fn generate_tests() -> Vec<Box<dyn MctpTransportTest  + Send>> {
-    vec![Box::new(Test::new("MctpMultiPktTest")) as Box<dyn MctpTransportTest  + Send>]
+pub(crate) fn generate_tests() -> Vec<Box<dyn MctpTransportTest + Send>> {
+    vec![Box::new(Test::new("MctpMultiPktTest")) as Box<dyn MctpTransportTest + Send>]
 }
 
 struct Test {
