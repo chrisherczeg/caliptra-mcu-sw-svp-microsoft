@@ -1,6 +1,6 @@
 // Licensed under the Apache-2.0 license
 
-use crate::i3c_socket::{MctpTestState, TestTrait};
+use crate::i3c_socket::{MctpTestState, MctpTransportTest};
 use crate::tests::mctp_util::common::MctpUtil;
 use crate::EMULATOR_RUNNING;
 use std::net::TcpStream;
@@ -30,7 +30,7 @@ impl Test {
     }
 }
 
-impl TestTrait for Test {
+impl MctpTransportTest for Test {
     fn is_passed(&self) -> bool {
         self.passed
     }
