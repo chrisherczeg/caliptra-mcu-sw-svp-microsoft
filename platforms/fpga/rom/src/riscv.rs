@@ -19,7 +19,9 @@ use core::fmt::Write;
 core::arch::global_asm!(include_str!("start.s"));
 
 use mcu_config::{McuMemoryMap, McuStraps};
-use mcu_rom_common::{LifecycleControllerState, LifecycleHashedToken, LifecycleToken};
+use mcu_rom_common::{
+    LifecycleControllerState, LifecycleHashedToken, LifecycleToken, RomParameters,
+};
 
 // re-export these so the common ROM and runtime can use them
 #[no_mangle]
@@ -72,6 +74,8 @@ pub extern "C" fn rom_entry() -> ! {
     let transition_unlocked = false;
     let burn_tokens = false;
     let transition_manufacturing = false;
+    let transition_production = false;
+    let program_field_entropy = false;
 
     // For now, we use the same tokens for all lifecycle transitions.
     let burn_lifecycle_tokens = if burn_tokens {
@@ -91,13 +95,23 @@ pub extern "C" fn rom_entry() -> ! {
             LifecycleControllerState::Dev, // alias for manufacturing
             burn_raw_token,
         ))
+    } else if transition_production {
+        Some((
+            LifecycleControllerState::Prod, // alias for manufacturing
+            burn_raw_token,
+        ))
     } else if transition_unlocked {
         Some((LifecycleControllerState::TestUnlocked0, unlock_token))
     } else {
         None
     };
 
-    mcu_rom_common::rom_start(lifecycle_transition, burn_lifecycle_tokens, None);
+    mcu_rom_common::rom_start(RomParameters {
+        lifecycle_transition,
+        burn_lifecycle_tokens,
+        program_field_entropy: [program_field_entropy; 4],
+        ..Default::default()
+    });
 
     let addr = MCU_MEMORY_MAP.sram_offset;
     romtime::println!("[mcu-rom] Jumping to firmware at {:08x}", addr);
