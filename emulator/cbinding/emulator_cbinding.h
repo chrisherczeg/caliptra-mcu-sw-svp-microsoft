@@ -39,6 +39,25 @@ typedef struct CEmulator {
 
 /**
  * Configuration structure for emulator initialization
+ *
+ * Memory layout override parameters use int64_t values where:
+ * - `-1` means use the default value
+ * - Valid positive values (0 to UINT32_MAX) will be used as-is
+ * - Invalid values (negative except -1, or > UINT32_MAX) will be treated as default
+ *
+ * Example usage in C:
+ * ```c
+ * CEmulatorConfig config = {
+ *     .rom_path = "rom.bin",
+ *     .firmware_path = "firmware.bin",
+ *     // ... other required fields ...
+ *     .rom_offset = 0x40000000,  // Use custom ROM offset
+ *     .rom_size = -1,            // Use default ROM size
+ *     .sram_offset = -1,         // Use default SRAM offset
+ *     .sram_size = 0x100000,     // Use custom SRAM size (1MB)
+ *     // ... other memory layout fields all set to -1 for defaults ...
+ * };
+ * ```
  */
 typedef struct CEmulatorConfig {
   const char *rom_path;
@@ -62,39 +81,39 @@ typedef struct CEmulatorConfig {
   unsigned int hw_revision_major;
   unsigned int hw_revision_minor;
   unsigned int hw_revision_patch;
-  unsigned int rom_offset;
-  unsigned int rom_size;
-  unsigned int uart_offset;
-  unsigned int uart_size;
-  unsigned int ctrl_offset;
-  unsigned int ctrl_size;
-  unsigned int spi_offset;
-  unsigned int spi_size;
-  unsigned int sram_offset;
-  unsigned int sram_size;
-  unsigned int pic_offset;
-  unsigned int external_test_sram_offset;
-  unsigned int external_test_sram_size;
-  unsigned int dccm_offset;
-  unsigned int dccm_size;
-  unsigned int i3c_offset;
-  unsigned int i3c_size;
-  unsigned int primary_flash_offset;
-  unsigned int primary_flash_size;
-  unsigned int secondary_flash_offset;
-  unsigned int secondary_flash_size;
-  unsigned int mci_offset;
-  unsigned int mci_size;
-  unsigned int dma_offset;
-  unsigned int dma_size;
-  unsigned int mbox_offset;
-  unsigned int mbox_size;
-  unsigned int soc_offset;
-  unsigned int soc_size;
-  unsigned int otp_offset;
-  unsigned int otp_size;
-  unsigned int lc_offset;
-  unsigned int lc_size;
+  long long rom_offset;
+  long long rom_size;
+  long long uart_offset;
+  long long uart_size;
+  long long ctrl_offset;
+  long long ctrl_size;
+  long long spi_offset;
+  long long spi_size;
+  long long sram_offset;
+  long long sram_size;
+  long long pic_offset;
+  long long external_test_sram_offset;
+  long long external_test_sram_size;
+  long long dccm_offset;
+  long long dccm_size;
+  long long i3c_offset;
+  long long i3c_size;
+  long long primary_flash_offset;
+  long long primary_flash_size;
+  long long secondary_flash_offset;
+  long long secondary_flash_size;
+  long long mci_offset;
+  long long mci_size;
+  long long dma_offset;
+  long long dma_size;
+  long long mbox_offset;
+  long long mbox_size;
+  long long soc_offset;
+  long long soc_size;
+  long long otp_offset;
+  long long otp_size;
+  long long lc_offset;
+  long long lc_size;
 } CEmulatorConfig;
 
 /**

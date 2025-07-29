@@ -15,7 +15,7 @@ Abstract:
 use emulator::{Emulator, EmulatorArgs, gdb};
 use caliptra_emu_cpu::StepAction;
 use std::ffi::CStr;
-use std::os::raw::{c_char, c_int, c_uint, c_uchar};
+use std::os::raw::{c_char, c_int, c_uint, c_uchar, c_longlong};
 use std::ptr;
 
 #[cfg(test)]
@@ -72,6 +72,25 @@ pub struct CEmulator {
 }
 
 /// Configuration structure for emulator initialization
+/// 
+/// Memory layout override parameters use int64_t values where:
+/// - `-1` means use the default value
+/// - Valid positive values (0 to UINT32_MAX) will be used as-is
+/// - Invalid values (negative except -1, or > UINT32_MAX) will be treated as default
+/// 
+/// Example usage in C:
+/// ```c
+/// CEmulatorConfig config = {
+///     .rom_path = "rom.bin",
+///     .firmware_path = "firmware.bin",
+///     // ... other required fields ...
+///     .rom_offset = 0x40000000,  // Use custom ROM offset
+///     .rom_size = -1,            // Use default ROM size
+///     .sram_offset = -1,         // Use default SRAM offset
+///     .sram_size = 0x100000,     // Use custom SRAM size (1MB)
+///     // ... other memory layout fields all set to -1 for defaults ...
+/// };
+/// ```
 #[repr(C)]
 pub struct CEmulatorConfig {
     pub rom_path: *const c_char,
@@ -96,40 +115,40 @@ pub struct CEmulatorConfig {
     pub hw_revision_minor: c_uint,
     pub hw_revision_patch: c_uint,
     
-    // Memory layout override parameters (0 means use default)
-    pub rom_offset: c_uint,
-    pub rom_size: c_uint,
-    pub uart_offset: c_uint,
-    pub uart_size: c_uint,
-    pub ctrl_offset: c_uint,
-    pub ctrl_size: c_uint,
-    pub spi_offset: c_uint,
-    pub spi_size: c_uint,
-    pub sram_offset: c_uint,
-    pub sram_size: c_uint,
-    pub pic_offset: c_uint,
-    pub external_test_sram_offset: c_uint,
-    pub external_test_sram_size: c_uint,
-    pub dccm_offset: c_uint,
-    pub dccm_size: c_uint,
-    pub i3c_offset: c_uint,
-    pub i3c_size: c_uint,
-    pub primary_flash_offset: c_uint,
-    pub primary_flash_size: c_uint,
-    pub secondary_flash_offset: c_uint,
-    pub secondary_flash_size: c_uint,
-    pub mci_offset: c_uint,
-    pub mci_size: c_uint,
-    pub dma_offset: c_uint,
-    pub dma_size: c_uint,
-    pub mbox_offset: c_uint,
-    pub mbox_size: c_uint,
-    pub soc_offset: c_uint,
-    pub soc_size: c_uint,
-    pub otp_offset: c_uint,
-    pub otp_size: c_uint,
-    pub lc_offset: c_uint,
-    pub lc_size: c_uint,
+    // Memory layout override parameters (-1 means use default)
+    pub rom_offset: c_longlong,
+    pub rom_size: c_longlong,
+    pub uart_offset: c_longlong,
+    pub uart_size: c_longlong,
+    pub ctrl_offset: c_longlong,
+    pub ctrl_size: c_longlong,
+    pub spi_offset: c_longlong,
+    pub spi_size: c_longlong,
+    pub sram_offset: c_longlong,
+    pub sram_size: c_longlong,
+    pub pic_offset: c_longlong,
+    pub external_test_sram_offset: c_longlong,
+    pub external_test_sram_size: c_longlong,
+    pub dccm_offset: c_longlong,
+    pub dccm_size: c_longlong,
+    pub i3c_offset: c_longlong,
+    pub i3c_size: c_longlong,
+    pub primary_flash_offset: c_longlong,
+    pub primary_flash_size: c_longlong,
+    pub secondary_flash_offset: c_longlong,
+    pub secondary_flash_size: c_longlong,
+    pub mci_offset: c_longlong,
+    pub mci_size: c_longlong,
+    pub dma_offset: c_longlong,
+    pub dma_size: c_longlong,
+    pub mbox_offset: c_longlong,
+    pub mbox_size: c_longlong,
+    pub soc_offset: c_longlong,
+    pub soc_size: c_longlong,
+    pub otp_offset: c_longlong,
+    pub otp_size: c_longlong,
+    pub lc_offset: c_longlong,
+    pub lc_size: c_longlong,
 }
 
 /// Get the size required to allocate memory for the emulator
@@ -222,7 +241,7 @@ pub unsafe extern "C" fn emulator_init(
             config.hw_revision_minor as u64,
             config.hw_revision_patch as u64,
         ),
-        // Use provided offset and size override parameters (0 means use default)
+        // Use provided offset and size override parameters (-1 means use default)
         rom_offset: convert_optional_offset_size(config.rom_offset),
         rom_size: convert_optional_offset_size(config.rom_size),
         uart_offset: convert_optional_offset_size(config.uart_offset),
@@ -525,11 +544,16 @@ unsafe fn convert_optional_c_string(c_str: *const c_char) -> Option<String> {
     }
 }
 
-fn convert_optional_offset_size(value: c_uint) -> Option<u32> {
-    if value == 0 {
+pub(crate) fn convert_optional_offset_size(value: c_longlong) -> Option<u32> {
+    if value == -1 {
         None
     } else {
-        Some(value)
+        // Convert to u32, but validate range
+        if value < 0 || value > u32::MAX as c_longlong {
+            None // Invalid range, treat as default
+        } else {
+            Some(value as u32)
+        }
     }
 }
 
