@@ -7,7 +7,7 @@ edition = "2021"
 
 [lib]
 name = "emulator_cbinding"
-crate-type = ["staticlib", "cdylib"]
+crate-type = ["staticlib"]
 
 [dependencies]
 emulator = { path = "../app" }

@@ -69,6 +69,7 @@ impl From<StepAction> for CStepAction {
 /// C function pointer type for external read callbacks
 /// 
 /// # Arguments
+/// * `context` - Context pointer passed to the callback
 /// * `size` - Size of the read operation (1, 2, or 4 bytes)
 /// * `addr` - Address being read from  
 /// * `buffer` - Pointer to write the read data to
@@ -76,6 +77,7 @@ impl From<StepAction> for CStepAction {
 /// # Returns
 /// * 1 for success, 0 for failure
 pub type CExternalReadCallback = unsafe extern "C" fn(
+    context: *const std::ffi::c_void,  // Context pointer
     size: c_uint,    // RvSize as u32
     addr: c_uint,    // RvAddr as u32
     buffer: *mut c_uint,  // Output buffer for read data
@@ -84,6 +86,7 @@ pub type CExternalReadCallback = unsafe extern "C" fn(
 /// C function pointer type for external write callbacks
 /// 
 /// # Arguments
+/// * `context` - Context pointer passed to the callback
 /// * `size` - Size of the write operation (1, 2, or 4 bytes)
 /// * `addr` - Address being written to
 /// * `data` - Data being written
@@ -91,6 +94,7 @@ pub type CExternalReadCallback = unsafe extern "C" fn(
 /// # Returns
 /// * 1 for success, 0 for failure
 pub type CExternalWriteCallback = unsafe extern "C" fn(
+    context: *const std::ffi::c_void,  // Context pointer
     size: c_uint,    // RvSize as u32
     addr: c_uint,    // RvAddr as u32
     data: c_uint,    // RvData as u32
@@ -185,6 +189,7 @@ pub struct CEmulatorConfig {
     // External device callbacks (can be null)
     pub external_read_callback: *const std::ffi::c_void,
     pub external_write_callback: *const std::ffi::c_void,
+    pub callback_context: *const std::ffi::c_void,  // Context pointer for callbacks
 }
 
 /// Get the size required to allocate memory for the emulator
@@ -320,7 +325,8 @@ pub unsafe extern "C" fn emulator_init(
         let c_callback: CExternalReadCallback = unsafe {
             std::mem::transmute(config.external_read_callback)
         };
-        Some(convert_c_read_callback(c_callback))
+        let context = config.callback_context;
+        Some(convert_c_read_callback(c_callback, context))
     };
     
     let write_callback = if config.external_write_callback.is_null() {
@@ -329,7 +335,8 @@ pub unsafe extern "C" fn emulator_init(
         let c_callback: CExternalWriteCallback = unsafe {
             std::mem::transmute(config.external_write_callback)
         };
-        Some(convert_c_write_callback(c_callback))
+        let context = config.callback_context;
+        Some(convert_c_write_callback(c_callback, context))
     };
 
     // Create the emulator with callbacks
@@ -601,6 +608,7 @@ pub extern "C" fn trigger_exit_request() -> EmulatorError {
 /// This is a simple test callback that C code can use for testing
 /// 
 /// # Arguments
+/// * `context` - Context pointer (unused in this example)
 /// * `size` - Size of the read operation (1, 2, or 4 bytes)
 /// * `addr` - Address being read from
 /// * `buffer` - Pointer to write the read data to
@@ -609,6 +617,7 @@ pub extern "C" fn trigger_exit_request() -> EmulatorError {
 /// * 1 for success
 #[no_mangle]
 pub unsafe extern "C" fn example_external_read_callback(
+    _context: *const std::ffi::c_void,
     _size: c_uint,
     addr: c_uint,
     buffer: *mut c_uint,
@@ -626,6 +635,7 @@ pub unsafe extern "C" fn example_external_read_callback(
 /// This is a simple test callback that C code can use for testing
 /// 
 /// # Arguments  
+/// * `context` - Context pointer (unused in this example)
 /// * `size` - Size of the write operation (1, 2, or 4 bytes)
 /// * `addr` - Address being written to
 /// * `data` - Data being written
@@ -634,6 +644,7 @@ pub unsafe extern "C" fn example_external_read_callback(
 /// * 1 for success
 #[no_mangle]
 pub unsafe extern "C" fn example_external_write_callback(
+    _context: *const std::ffi::c_void,
     size: c_uint,
     addr: c_uint,
     data: c_uint,
@@ -661,7 +672,7 @@ unsafe fn convert_optional_c_string(c_str: *const c_char) -> Option<String> {
 }
 
 /// Convert C external read callback to Rust callback
-fn convert_c_read_callback(c_callback: CExternalReadCallback) -> ExternalReadCallback {
+fn convert_c_read_callback(c_callback: CExternalReadCallback, context: *const std::ffi::c_void) -> ExternalReadCallback {
     Box::new(move |size, addr, buffer| {
         // Convert RvSize to u32
         let size_u32 = match size {
@@ -671,13 +682,13 @@ fn convert_c_read_callback(c_callback: CExternalReadCallback) -> ExternalReadCal
             RvSize::Invalid => return false, // Invalid size
         };
         
-        let result = unsafe { c_callback(size_u32, addr, buffer as *mut c_uint) };
+        let result = unsafe { c_callback(context, size_u32, addr, buffer as *mut c_uint) };
         result != 0
     })
 }
 
 /// Convert C external write callback to Rust callback  
-fn convert_c_write_callback(c_callback: CExternalWriteCallback) -> ExternalWriteCallback {
+fn convert_c_write_callback(c_callback: CExternalWriteCallback, context: *const std::ffi::c_void) -> ExternalWriteCallback {
     Box::new(move |size, addr, data| {
         // Convert RvSize to u32
         let size_u32 = match size {
@@ -687,7 +698,7 @@ fn convert_c_write_callback(c_callback: CExternalWriteCallback) -> ExternalWrite
             RvSize::Invalid => return false, // Invalid size
         };
         
-        let result = unsafe { c_callback(size_u32, addr, data) };
+        let result = unsafe { c_callback(context, size_u32, addr, data) };
         result != 0
     })
 }

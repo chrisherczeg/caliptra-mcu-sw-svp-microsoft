@@ -116,6 +116,7 @@ typedef struct CEmulatorConfig {
   long long lc_size;
   const void *external_read_callback;
   const void *external_write_callback;
+  const void *callback_context;
 } CEmulatorConfig;
 
 /**
@@ -282,6 +283,7 @@ enum EmulatorError trigger_exit_request(void);
  * This is a simple test callback that C code can use for testing
  *
  * # Arguments
+ * * `context` - Context pointer (unused in this example)
  * * `size` - Size of the read operation (1, 2, or 4 bytes)
  * * `addr` - Address being read from
  * * `buffer` - Pointer to write the read data to
@@ -289,13 +291,17 @@ enum EmulatorError trigger_exit_request(void);
  * # Returns
  * * 1 for success
  */
-int example_external_read_callback(unsigned int _size, unsigned int addr, unsigned int *buffer);
+int example_external_read_callback(const void *_context,
+                                   unsigned int _size,
+                                   unsigned int addr,
+                                   unsigned int *buffer);
 
 /**
  * Example external write callback that logs the operation
  * This is a simple test callback that C code can use for testing
  *
  * # Arguments
+ * * `context` - Context pointer (unused in this example)
  * * `size` - Size of the write operation (1, 2, or 4 bytes)
  * * `addr` - Address being written to
  * * `data` - Data being written
@@ -303,6 +309,9 @@ int example_external_read_callback(unsigned int _size, unsigned int addr, unsign
  * # Returns
  * * 1 for success
  */
-int example_external_write_callback(unsigned int size, unsigned int addr, unsigned int data);
+int example_external_write_callback(const void *_context,
+                                    unsigned int size,
+                                    unsigned int addr,
+                                    unsigned int data);
 
 #endif /* EMULATOR_CBINDING_H */

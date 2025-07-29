@@ -12,6 +12,7 @@ line_length = 100
 documentation = true
 documentation_style = "doxy"
 usize_is_size_t = true
+cpp_compat = true
 
 [defines]
 "feature = serde" = "CBINDGEN_SERDE"
