@@ -12,8 +12,9 @@ Abstract:
 
 --*/
 
-use emulator::{Emulator, EmulatorArgs, gdb};
+use emulator::{Emulator, EmulatorArgs, ExternalReadCallback, ExternalWriteCallback, gdb};
 use caliptra_emu_cpu::StepAction;
+use caliptra_emu_types::RvSize;
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_int, c_uint, c_uchar, c_longlong};
 use std::ptr;
@@ -63,6 +64,36 @@ impl From<StepAction> for CStepAction {
         }
     }
 }
+
+/// C function pointer type for external read callbacks
+/// 
+/// # Arguments
+/// * `size` - Size of the read operation (1, 2, or 4 bytes)
+/// * `addr` - Address being read from  
+/// * `buffer` - Pointer to write the read data to
+/// 
+/// # Returns
+/// * 1 for success, 0 for failure
+pub type CExternalReadCallback = unsafe extern "C" fn(
+    size: c_uint,    // RvSize as u32
+    addr: c_uint,    // RvAddr as u32
+    buffer: *mut c_uint,  // Output buffer for read data
+) -> c_int;
+
+/// C function pointer type for external write callbacks
+/// 
+/// # Arguments
+/// * `size` - Size of the write operation (1, 2, or 4 bytes)
+/// * `addr` - Address being written to
+/// * `data` - Data being written
+/// 
+/// # Returns
+/// * 1 for success, 0 for failure
+pub type CExternalWriteCallback = unsafe extern "C" fn(
+    size: c_uint,    // RvSize as u32
+    addr: c_uint,    // RvAddr as u32
+    data: c_uint,    // RvData as u32
+) -> c_int;
 
 /// Opaque structure representing the emulator
 /// C code should allocate memory for this structure
@@ -149,6 +180,10 @@ pub struct CEmulatorConfig {
     pub otp_size: c_longlong,
     pub lc_offset: c_longlong,
     pub lc_size: c_longlong,
+    
+    // External device callbacks (optional, can be null)
+    pub external_read_callback: Option<CExternalReadCallback>,
+    pub external_write_callback: Option<CExternalWriteCallback>,
 }
 
 /// Get the size required to allocate memory for the emulator
@@ -277,8 +312,17 @@ pub unsafe extern "C" fn emulator_init(
         lc_size: convert_optional_offset_size(config.lc_size),
     };
 
-    // Create the emulator
-    let emulator = match Emulator::from_args(args, config.capture_uart_output != 0) {
+    // Convert C callbacks to Rust callbacks if provided
+    let read_callback = config.external_read_callback.map(convert_c_read_callback);
+    let write_callback = config.external_write_callback.map(convert_c_write_callback);
+
+    // Create the emulator with callbacks
+    let emulator = match Emulator::from_args_with_callbacks(
+        args, 
+        config.capture_uart_output != 0,
+        read_callback,
+        write_callback
+    ) {
         Ok(emu) => emu,
         Err(_) => return EmulatorError::InitializationFailed,
     };
@@ -526,6 +570,51 @@ pub unsafe extern "C" fn get_pc(emulator_memory: *mut CEmulator) -> c_uint {
     }
 }
 
+/// Example external read callback that returns the address as data
+/// This is a simple test callback that C code can use for testing
+/// 
+/// # Arguments
+/// * `size` - Size of the read operation (1, 2, or 4 bytes)
+/// * `addr` - Address being read from
+/// * `buffer` - Pointer to write the read data to
+/// 
+/// # Returns
+/// * 1 for success
+#[no_mangle]
+pub unsafe extern "C" fn example_external_read_callback(
+    _size: c_uint,
+    addr: c_uint,
+    buffer: *mut c_uint,
+) -> c_int {
+    if buffer.is_null() {
+        return 0;
+    }
+    
+    // Simple example: return the address as the read data
+    *buffer = addr;
+    1 // Success
+}
+
+/// Example external write callback that logs the operation
+/// This is a simple test callback that C code can use for testing
+/// 
+/// # Arguments  
+/// * `size` - Size of the write operation (1, 2, or 4 bytes)
+/// * `addr` - Address being written to
+/// * `data` - Data being written
+/// 
+/// # Returns
+/// * 1 for success
+#[no_mangle]
+pub unsafe extern "C" fn example_external_write_callback(
+    size: c_uint,
+    addr: c_uint,
+    data: c_uint,
+) -> c_int {
+    println!("External write: size={}, addr=0x{:08x}, data=0x{:08x}", size, addr, data);
+    1 // Success
+}
+
 // Helper functions
 
 unsafe fn convert_c_string(c_str: *const c_char) -> Result<String, std::str::Utf8Error> {
@@ -542,6 +631,38 @@ unsafe fn convert_optional_c_string(c_str: *const c_char) -> Option<String> {
     } else {
         convert_c_string(c_str).ok()
     }
+}
+
+/// Convert C external read callback to Rust callback
+fn convert_c_read_callback(c_callback: CExternalReadCallback) -> ExternalReadCallback {
+    Box::new(move |size, addr, buffer| {
+        // Convert RvSize to u32
+        let size_u32 = match size {
+            RvSize::Byte => 1,
+            RvSize::HalfWord => 2,
+            RvSize::Word => 4,
+            RvSize::Invalid => return false, // Invalid size
+        };
+        
+        let result = unsafe { c_callback(size_u32, addr, buffer as *mut c_uint) };
+        result != 0
+    })
+}
+
+/// Convert C external write callback to Rust callback  
+fn convert_c_write_callback(c_callback: CExternalWriteCallback) -> ExternalWriteCallback {
+    Box::new(move |size, addr, data| {
+        // Convert RvSize to u32
+        let size_u32 = match size {
+            RvSize::Byte => 1,
+            RvSize::HalfWord => 2,
+            RvSize::Word => 4,
+            RvSize::Invalid => return false, // Invalid size
+        };
+        
+        let result = unsafe { c_callback(size_u32, addr, data) };
+        result != 0
+    })
 }
 
 pub(crate) fn convert_optional_offset_size(value: c_longlong) -> Option<u32> {

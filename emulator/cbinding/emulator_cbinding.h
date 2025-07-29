@@ -29,6 +29,10 @@ typedef enum EmulatorError {
   InvalidEmulator = -4,
 } EmulatorError;
 
+typedef struct Option_CExternalReadCallback Option_CExternalReadCallback;
+
+typedef struct Option_CExternalWriteCallback Option_CExternalWriteCallback;
+
 /**
  * Opaque structure representing the emulator
  * C code should allocate memory for this structure
@@ -114,6 +118,8 @@ typedef struct CEmulatorConfig {
   long long otp_size;
   long long lc_offset;
   long long lc_size;
+  struct Option_CExternalReadCallback external_read_callback;
+  struct Option_CExternalWriteCallback external_write_callback;
 } CEmulatorConfig;
 
 /**
@@ -265,5 +271,33 @@ unsigned int emulator_get_gdb_port(struct CEmulator *emulator_memory);
  * * `emulator_memory` must point to a valid, initialized emulator
  */
 unsigned int get_pc(struct CEmulator *emulator_memory);
+
+/**
+ * Example external read callback that returns the address as data
+ * This is a simple test callback that C code can use for testing
+ *
+ * # Arguments
+ * * `size` - Size of the read operation (1, 2, or 4 bytes)
+ * * `addr` - Address being read from
+ * * `buffer` - Pointer to write the read data to
+ *
+ * # Returns
+ * * 1 for success
+ */
+int example_external_read_callback(unsigned int _size, unsigned int addr, unsigned int *buffer);
+
+/**
+ * Example external write callback that logs the operation
+ * This is a simple test callback that C code can use for testing
+ *
+ * # Arguments
+ * * `size` - Size of the write operation (1, 2, or 4 bytes)
+ * * `addr` - Address being written to
+ * * `data` - Data being written
+ *
+ * # Returns
+ * * 1 for success
+ */
+int example_external_write_callback(unsigned int size, unsigned int addr, unsigned int data);
 
 #endif /* EMULATOR_CBINDING_H */

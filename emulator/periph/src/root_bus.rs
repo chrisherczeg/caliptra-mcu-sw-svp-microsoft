@@ -12,7 +12,7 @@ Abstract:
 
 --*/
 
-use crate::{spi_host::SpiHost, EmuCtrl, Uart};
+use crate::{external_shim::Shim, spi_host::SpiHost, EmuCtrl, Uart};
 use caliptra_emu_bus::{Bus, BusError, Clock, Ram, Rom};
 use caliptra_emu_bus::{Device, Event, EventData};
 use caliptra_emu_cpu::{Pic, PicMmioRegisters};
@@ -91,6 +91,7 @@ pub struct McuRootBus {
     pub rom_sram: Rc<RefCell<Ram>>,
     pub pic_regs: PicMmioRegisters,
     pub external_test_sram: Rc<RefCell<Ram>>,
+    pub external_shim: Shim,
     event_sender: Option<mpsc::Sender<Event>>,
     offsets: McuRootBusOffsets,
 }
@@ -125,6 +126,7 @@ impl McuRootBus {
             pic_regs: pic.mmio_regs(clock.clone()),
             event_sender: None,
             external_test_sram: Rc::new(RefCell::new(external_test_sram)),
+            external_shim: Shim::new(),
             offsets: args.offsets,
         })
     }
@@ -140,7 +142,12 @@ impl McuRootBus {
         if offset + data.len() > self.external_test_sram.borrow().len() as usize {
             panic!("Data exceeds TEST SRAM size");
         }
-        self.ram.borrow_mut().data_mut()[offset..offset + data.len()].copy_from_slice(data);
+        self.external_test_sram.borrow_mut().data_mut()[offset..offset + data.len()].copy_from_slice(data);
+    }
+
+    /// Provides mutable access to the external shim for setting read/write callbacks
+    pub fn external_shim_mut(&mut self) -> &mut Shim {
+        &mut self.external_shim
     }
 }
 
@@ -190,7 +197,7 @@ impl Bus for McuRootBus {
                 .borrow_mut()
                 .read(size, addr - self.offsets.external_test_sram_offset);
         }
-        Err(BusError::LoadAccessFault)
+        self.external_shim.read(size, addr)
     }
 
     fn write(&mut self, size: RvSize, addr: RvAddr, val: RvData) -> Result<(), BusError> {
@@ -242,7 +249,7 @@ impl Bus for McuRootBus {
                 val,
             );
         }
-        Err(BusError::StoreAccessFault)
+        self.external_shim.write(size, addr, val)
     }
 
     fn poll(&mut self) {
@@ -254,6 +261,7 @@ impl Bus for McuRootBus {
         self.rom_sram.borrow_mut().poll();
         self.pic_regs.poll();
         self.external_test_sram.borrow_mut().poll();
+        self.external_shim.poll();
     }
 
     fn warm_reset(&mut self) {
@@ -265,6 +273,7 @@ impl Bus for McuRootBus {
         self.rom_sram.borrow_mut().warm_reset();
         self.pic_regs.warm_reset();
         self.external_test_sram.borrow_mut().warm_reset();
+        self.external_shim.warm_reset();
     }
 
     fn update_reset(&mut self) {
@@ -276,6 +285,7 @@ impl Bus for McuRootBus {
         self.rom_sram.borrow_mut().update_reset();
         self.pic_regs.update_reset();
         self.external_test_sram.borrow_mut().update_reset();
+        self.external_shim.update_reset();
     }
 
     fn register_outgoing_events(&mut self, sender: mpsc::Sender<Event>) {
@@ -287,6 +297,7 @@ impl Bus for McuRootBus {
             .borrow_mut()
             .register_outgoing_events(sender.clone());
         self.pic_regs.register_outgoing_events(sender.clone());
+        self.external_shim.register_outgoing_events(sender.clone());
         self.event_sender = Some(sender);
     }
 
@@ -297,6 +308,7 @@ impl Bus for McuRootBus {
         self.spi.incoming_event(event.clone());
         self.ram.borrow_mut().incoming_event(event.clone());
         self.pic_regs.incoming_event(event.clone());
+        self.external_shim.incoming_event(event.clone());
 
         if let (Device::MCU, EventData::MemoryRead { start_addr, len }) =
             (event.dest, event.event.clone())
