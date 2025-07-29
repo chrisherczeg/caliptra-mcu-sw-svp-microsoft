@@ -39,3 +39,10 @@ rustflags = [
     "-C",
     "link-arg=-icf=all",
 ]
+
+# Git authentication configuration for Azure DevOps
+[net]
+git-fetch-with-cli = true
+
+[http]
+check-revoke = false

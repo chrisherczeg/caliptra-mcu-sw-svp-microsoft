@@ -191,29 +191,29 @@ libtock_runtime = { path = "runtime/userspace/libtock/runtime" }
 libtock_small_panic = { path = "runtime/userspace/libtock/panic_handlers/small_panic" }
 libtock_unittest = { path = "runtime/userspace/libtock/unittest" }
 
-# caliptra dependencies; keep git revs in sync
-caliptra-api = { git = "https://github.com/chipsalliance/caliptra-sw", rev = "977a21dfbe129836fb930b00cf87803275255611" }
-caliptra-api-types = { git = "https://github.com/chipsalliance/caliptra-sw", rev = "977a21dfbe129836fb930b00cf87803275255611" }
-caliptra-auth-man-gen = { git = "https://github.com/chipsalliance/caliptra-sw", rev = "977a21dfbe129836fb930b00cf87803275255611" }
-caliptra-auth-man-types = { git = "https://github.com/chipsalliance/caliptra-sw", rev = "977a21dfbe129836fb930b00cf87803275255611" }
-caliptra-builder = { git = "https://github.com/chipsalliance/caliptra-sw", rev = "977a21dfbe129836fb930b00cf87803275255611" }
-caliptra-emu-bus = { git = "https://github.com/chipsalliance/caliptra-sw", rev = "977a21dfbe129836fb930b00cf87803275255611" }
-caliptra-emu-cpu = { git = "https://github.com/chipsalliance/caliptra-sw", rev = "977a21dfbe129836fb930b00cf87803275255611" }
-caliptra-emu-derive = { git = "https://github.com/chipsalliance/caliptra-sw", rev = "977a21dfbe129836fb930b00cf87803275255611" }
-caliptra-emu-periph = { git = "https://github.com/chipsalliance/caliptra-sw", rev = "977a21dfbe129836fb930b00cf87803275255611" }
-caliptra-emu-types = { git = "https://github.com/chipsalliance/caliptra-sw", rev = "977a21dfbe129836fb930b00cf87803275255611" }
-caliptra-error = { git = "https://github.com/chipsalliance/caliptra-sw", rev = "977a21dfbe129836fb930b00cf87803275255611", default-features = false }
-caliptra-hw-model = { git = "https://github.com/chipsalliance/caliptra-sw", rev = "977a21dfbe129836fb930b00cf87803275255611" }
-caliptra-hw-model-types = { git = "https://github.com/chipsalliance/caliptra-sw", rev = "977a21dfbe129836fb930b00cf87803275255611" }
-caliptra-image-crypto = { git = "https://github.com/chipsalliance/caliptra-sw", rev = "977a21dfbe129836fb930b00cf87803275255611", default-features = false, features = ["rustcrypto"] }
-caliptra-image-fake-keys = { git = "https://github.com/chipsalliance/caliptra-sw", rev = "977a21dfbe129836fb930b00cf87803275255611" }
-caliptra-image-gen = { git = "https://github.com/chipsalliance/caliptra-sw", rev = "977a21dfbe129836fb930b00cf87803275255611" }
-caliptra-image-types = { git = "https://github.com/chipsalliance/caliptra-sw", rev = "977a21dfbe129836fb930b00cf87803275255611" }
-caliptra-registers = { git = "https://github.com/chipsalliance/caliptra-sw", rev = "977a21dfbe129836fb930b00cf87803275255611" }
-caliptra-test = { git = "https://github.com/chipsalliance/caliptra-sw", rev = "977a21dfbe129836fb930b00cf87803275255611" }
-caliptra-test-harness-types = { git = "https://github.com/chipsalliance/caliptra-sw", rev = "977a21dfbe129836fb930b00cf87803275255611" }
-ureg = { git = "https://github.com/chipsalliance/caliptra-sw", rev = "977a21dfbe129836fb930b00cf87803275255611" }
-dpe = { git = "https://github.com/chipsalliance/caliptra-sw", rev = "977a21dfbe129836fb930b00cf87803275255611", default-features = false, features = ["dpe_profile_p384_sha384"] }
+# Note: Authentication handled via git config in CI/CD pipeline
+caliptra-api = { git = "https://azurecsi.visualstudio.com/1P-SoC-Modeling/_git/caliptra-sw", rev = "4b3718e377b5a5678248be39941562bed35afe61" }
+caliptra-api-types = { git = "https://azurecsi.visualstudio.com/1P-SoC-Modeling/_git/caliptra-sw", rev = "4b3718e377b5a5678248be39941562bed35afe61" }
+caliptra-auth-man-gen = { git = "https://azurecsi.visualstudio.com/1P-SoC-Modeling/_git/caliptra-sw", rev = "4b3718e377b5a5678248be39941562bed35afe61" }
+caliptra-auth-man-types = { git = "https://azurecsi.visualstudio.com/1P-SoC-Modeling/_git/caliptra-sw", rev = "4b3718e377b5a5678248be39941562bed35afe61" }
+caliptra-builder = { git = "https://azurecsi.visualstudio.com/1P-SoC-Modeling/_git/caliptra-sw", rev = "4b3718e377b5a5678248be39941562bed35afe61" }
+caliptra-emu-bus = { git = "https://azurecsi.visualstudio.com/1P-SoC-Modeling/_git/caliptra-sw", rev = "4b3718e377b5a5678248be39941562bed35afe61" }
+caliptra-emu-cpu = { git = "https://azurecsi.visualstudio.com/1P-SoC-Modeling/_git/caliptra-sw", rev = "4b3718e377b5a5678248be39941562bed35afe61" }
+caliptra-emu-derive = { git = "https://azurecsi.visualstudio.com/1P-SoC-Modeling/_git/caliptra-sw", rev = "4b3718e377b5a5678248be39941562bed35afe61" }
+caliptra-emu-periph = { git = "https://azurecsi.visualstudio.com/1P-SoC-Modeling/_git/caliptra-sw", rev = "4b3718e377b5a5678248be39941562bed35afe61" }
+caliptra-emu-types = { git = "https://azurecsi.visualstudio.com/1P-SoC-Modeling/_git/caliptra-sw", rev = "4b3718e377b5a5678248be39941562bed35afe61" }
+caliptra-error = { git = "https://azurecsi.visualstudio.com/1P-SoC-Modeling/_git/caliptra-sw", rev = "4b3718e377b5a5678248be39941562bed35afe61", default-features = false }
+caliptra-hw-model = { git = "https://azurecsi.visualstudio.com/1P-SoC-Modeling/_git/caliptra-sw", rev = "4b3718e377b5a5678248be39941562bed35afe61" }
+caliptra-hw-model-types = { git = "https://azurecsi.visualstudio.com/1P-SoC-Modeling/_git/caliptra-sw", rev = "4b3718e377b5a5678248be39941562bed35afe61" }
+caliptra-image-crypto = { git = "https://azurecsi.visualstudio.com/1P-SoC-Modeling/_git/caliptra-sw", rev = "4b3718e377b5a5678248be39941562bed35afe61", default-features = false, features = ["rustcrypto"] }
+caliptra-image-fake-keys = { git = "https://azurecsi.visualstudio.com/1P-SoC-Modeling/_git/caliptra-sw", rev = "4b3718e377b5a5678248be39941562bed35afe61" }
+caliptra-image-gen = { git = "https://azurecsi.visualstudio.com/1P-SoC-Modeling/_git/caliptra-sw", rev = "4b3718e377b5a5678248be39941562bed35afe61" }
+caliptra-image-types = { git = "https://azurecsi.visualstudio.com/1P-SoC-Modeling/_git/caliptra-sw", rev = "4b3718e377b5a5678248be39941562bed35afe61" }
+caliptra-registers = { git = "https://azurecsi.visualstudio.com/1P-SoC-Modeling/_git/caliptra-sw", rev = "4b3718e377b5a5678248be39941562bed35afe61" }
+caliptra-test = { git = "https://azurecsi.visualstudio.com/1P-SoC-Modeling/_git/caliptra-sw", rev = "4b3718e377b5a5678248be39941562bed35afe61" }
+caliptra-test-harness-types = { git = "https://azurecsi.visualstudio.com/1P-SoC-Modeling/_git/caliptra-sw", rev = "4b3718e377b5a5678248be39941562bed35afe61" }
+ureg = { git = "https://azurecsi.visualstudio.com/1P-SoC-Modeling/_git/caliptra-sw", rev = "4b3718e377b5a5678248be39941562bed35afe61" }
+dpe = { git = "https://azurecsi.visualstudio.com/1P-SoC-Modeling/_git/caliptra-sw", rev = "4b3718e377b5a5678248be39941562bed35afe61", default-features = false, features = ["dpe_profile_p384_sha384"] }
 
 # local caliptra dependency; useful when developing
 # caliptra-api = { path = "../caliptra-sw/api" }
