@@ -29,10 +29,6 @@ typedef enum EmulatorError {
   InvalidEmulator = -4,
 } EmulatorError;
 
-typedef struct Option_CExternalReadCallback Option_CExternalReadCallback;
-
-typedef struct Option_CExternalWriteCallback Option_CExternalWriteCallback;
-
 /**
  * Opaque structure representing the emulator
  * C code should allocate memory for this structure
@@ -118,8 +114,8 @@ typedef struct CEmulatorConfig {
   long long otp_size;
   long long lc_offset;
   long long lc_size;
-  struct Option_CExternalReadCallback external_read_callback;
-  struct Option_CExternalWriteCallback external_write_callback;
+  const void *external_read_callback;
+  const void *external_write_callback;
 } CEmulatorConfig;
 
 /**

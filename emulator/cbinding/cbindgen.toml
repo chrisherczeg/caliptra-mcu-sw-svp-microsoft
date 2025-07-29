@@ -17,6 +17,10 @@ usize_is_size_t = true
 "feature = serde" = "CBINDGEN_SERDE"
 
 [export]
+exclude = [
+    "Option_CExternalReadCallback",
+    "Option_CExternalWriteCallback"
+]
 include = [
     "EmulatorError",
     "CStepAction", 

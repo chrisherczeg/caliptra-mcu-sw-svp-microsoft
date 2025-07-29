@@ -16,7 +16,7 @@ use emulator::{Emulator, EmulatorArgs, ExternalReadCallback, ExternalWriteCallba
 use caliptra_emu_cpu::StepAction;
 use caliptra_emu_types::RvSize;
 use std::ffi::CStr;
-use std::os::raw::{c_char, c_int, c_uint, c_uchar, c_longlong};
+use std::os::raw::{c_char, c_int, c_uint, c_uchar, c_longlong, c_void};
 use std::ptr;
 
 #[cfg(test)]
@@ -181,9 +181,9 @@ pub struct CEmulatorConfig {
     pub lc_offset: c_longlong,
     pub lc_size: c_longlong,
     
-    // External device callbacks (optional, can be null)
-    pub external_read_callback: Option<CExternalReadCallback>,
-    pub external_write_callback: Option<CExternalWriteCallback>,
+    // External device callbacks (can be null)
+    pub external_read_callback: *const std::ffi::c_void,
+    pub external_write_callback: *const std::ffi::c_void,
 }
 
 /// Get the size required to allocate memory for the emulator
@@ -313,8 +313,23 @@ pub unsafe extern "C" fn emulator_init(
     };
 
     // Convert C callbacks to Rust callbacks if provided
-    let read_callback = config.external_read_callback.map(convert_c_read_callback);
-    let write_callback = config.external_write_callback.map(convert_c_write_callback);
+    let read_callback = if config.external_read_callback.is_null() {
+        None
+    } else {
+        let c_callback: CExternalReadCallback = unsafe {
+            std::mem::transmute(config.external_read_callback)
+        };
+        Some(convert_c_read_callback(c_callback))
+    };
+    
+    let write_callback = if config.external_write_callback.is_null() {
+        None
+    } else {
+        let c_callback: CExternalWriteCallback = unsafe {
+            std::mem::transmute(config.external_write_callback)
+        };
+        Some(convert_c_write_callback(c_callback))
+    };
 
     // Create the emulator with callbacks
     let emulator = match Emulator::from_args_with_callbacks(
