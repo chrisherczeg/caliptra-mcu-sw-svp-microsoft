@@ -57,7 +57,7 @@ impl GdbTarget {
         &self.emulator
     }
 
-    // Get a mutable reference to the underlying emulator  
+    // Get a mutable reference to the underlying emulator
     pub fn emulator_mut(&mut self) -> &mut Emulator {
         &mut self.emulator
     }

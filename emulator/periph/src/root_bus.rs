@@ -142,7 +142,8 @@ impl McuRootBus {
         if offset + data.len() > self.external_test_sram.borrow().len() as usize {
             panic!("Data exceeds TEST SRAM size");
         }
-        self.external_test_sram.borrow_mut().data_mut()[offset..offset + data.len()].copy_from_slice(data);
+        self.external_test_sram.borrow_mut().data_mut()[offset..offset + data.len()]
+            .copy_from_slice(data);
     }
 
     /// Provides mutable access to the external shim for setting read/write callbacks

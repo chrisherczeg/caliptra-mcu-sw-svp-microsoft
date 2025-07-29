@@ -1,16 +1,16 @@
 //! Integration test demonstrating library usage
 
-use emulator::{Emulator, EmulatorArgs, EMULATOR_RUNNING, wait_for_runtime_start};
+use emulator::{wait_for_runtime_start, Emulator, EmulatorArgs, EMULATOR_RUNNING};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
 #[test]
 fn test_library_api_access() {
     // Test that we can access the public API elements
-    
+
     // Test global variables are accessible
     assert!(EMULATOR_RUNNING.load(Ordering::Relaxed));
-    
+
     // Test that we can create EmulatorArgs (even if we can't fully instantiate without real files)
     let _args = EmulatorArgs {
         rom: PathBuf::from("test_rom.bin"),
@@ -66,7 +66,7 @@ fn test_library_api_access() {
         lc_offset: None,
         lc_size: None,
     };
-    
+
     // Test that utility function is accessible
     // Note: We can't actually call wait_for_runtime_start() here as it would block the test
     // but we can verify it's available in the public API
@@ -76,13 +76,13 @@ fn test_library_api_access() {
 fn test_submodule_access() {
     // Test that we can access public submodules
     // This verifies the module structure is correctly exported
-    
+
     // These should compile if the modules are properly exported
-    use emulator::gdb;
-    use emulator::tests;
-    use emulator::doe_mbox_fsm;
     use emulator::dis;
+    use emulator::doe_mbox_fsm;
     use emulator::elf;
+    use emulator::gdb;
     use emulator::i3c_socket;
     use emulator::mctp_transport;
+    use emulator::tests;
 }
