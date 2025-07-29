@@ -19,7 +19,7 @@ use crate::i3c_socket;
 use crate::i3c_socket::start_i3c_socket;
 use crate::mctp_transport::MctpTransport;
 use crate::tests;
-use crate::{EMULATOR_RUNNING, MCU_RUNTIME_STARTED};
+use crate::{EMULATOR_RUNNING, EMULATOR_TICKS, MCU_RUNTIME_STARTED, TICK_COND};
 use caliptra_emu_bus::{Bus, Clock, Timer};
 use caliptra_emu_cpu::{Cpu, Pic, RvInstr, StepAction};
 use caliptra_emu_cpu::{Cpu as CaliptraMainCpu, StepAction as CaliptraMainStepAction};
@@ -897,6 +897,12 @@ impl Emulator {
     pub fn step(&mut self) -> StepAction {
         if !EMULATOR_RUNNING.load(Ordering::Relaxed) {
             return StepAction::Break;
+        }
+
+        let now = self.mcu_cpu.clock.now();
+        EMULATOR_TICKS.store(now, Ordering::Relaxed);
+        if now % 1000 == 0 {
+            TICK_COND.notify_all();
         }
 
         if let Some(ref stdin_uart) = self.stdin_uart {
