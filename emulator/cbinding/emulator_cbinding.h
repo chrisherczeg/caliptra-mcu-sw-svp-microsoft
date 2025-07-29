@@ -269,6 +269,15 @@ unsigned int emulator_get_gdb_port(struct CEmulator *emulator_memory);
 unsigned int get_pc(struct CEmulator *emulator_memory);
 
 /**
+ * Trigger an exit request by setting EMULATOR_RUNNING to false
+ * This will cause any loops waiting on EMULATOR_RUNNING to exit
+ *
+ * # Returns
+ * * `EmulatorError::Success` on success
+ */
+enum EmulatorError trigger_exit_request(void);
+
+/**
  * Example external read callback that returns the address as data
  * This is a simple test callback that C code can use for testing
  *

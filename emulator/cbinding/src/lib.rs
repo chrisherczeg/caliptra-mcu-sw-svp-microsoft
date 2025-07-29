@@ -12,12 +12,13 @@ Abstract:
 
 --*/
 
-use emulator::{Emulator, EmulatorArgs, ExternalReadCallback, ExternalWriteCallback, gdb};
+use emulator::{Emulator, EmulatorArgs, ExternalReadCallback, ExternalWriteCallback, gdb, EMULATOR_RUNNING};
 use caliptra_emu_cpu::StepAction;
 use caliptra_emu_types::RvSize;
 use std::ffi::CStr;
-use std::os::raw::{c_char, c_int, c_uint, c_uchar, c_longlong, c_void};
+use std::os::raw::{c_char, c_int, c_uint, c_uchar, c_longlong};
 use std::ptr;
+use std::sync::atomic::Ordering;
 
 #[cfg(test)]
 mod simple_test;
@@ -583,6 +584,17 @@ pub unsafe extern "C" fn get_pc(emulator_memory: *mut CEmulator) -> c_uint {
         EmulatorWrapper::Normal(emulator) => emulator.get_pc(),
         EmulatorWrapper::Gdb(gdb_target) => gdb_target.emulator().get_pc(),
     }
+}
+
+/// Trigger an exit request by setting EMULATOR_RUNNING to false
+/// This will cause any loops waiting on EMULATOR_RUNNING to exit
+/// 
+/// # Returns
+/// * `EmulatorError::Success` on success
+#[no_mangle]
+pub extern "C" fn trigger_exit_request() -> EmulatorError {
+    EMULATOR_RUNNING.store(false, Ordering::Relaxed);
+    EmulatorError::Success
 }
 
 /// Example external read callback that returns the address as data
