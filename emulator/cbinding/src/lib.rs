@@ -339,6 +339,7 @@ pub unsafe extern "C" fn emulator_init(
         Some(convert_c_write_callback(c_callback, context))
     };
 
+    println!("args: {:?}", args);
     // Create the emulator with callbacks
     let emulator = match Emulator::from_args_with_callbacks(
         args, 
