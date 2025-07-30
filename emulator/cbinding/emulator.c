@@ -21,6 +21,13 @@ Abstract:
 #include <signal.h>
 #include <errno.h>
 #include <getopt.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <signal.h>
+#include <errno.h>
+#include <getopt.h>
 
 // Global emulator pointer for signal handler
 static struct CEmulator* global_emulator = NULL;
@@ -70,8 +77,13 @@ void print_usage(const char* program_name) {
     printf("      --uart-size <UART_SIZE>          Override UART size\n");
     printf("      --sram-offset <SRAM_OFFSET>      Override SRAM offset\n");
     printf("      --sram-size <SRAM_SIZE>          Override SRAM size\n");
+    printf("      --pic-offset <PIC_OFFSET>        Override PIC offset\n");
+    printf("      --dccm-offset <DCCM_OFFSET>      Override DCCM offset\n");
+    printf("      --dccm-size <DCCM_SIZE>          Override DCCM size\n");
     printf("      --i3c-offset <I3C_OFFSET>        Override I3C offset\n");
     printf("      --i3c-size <I3C_SIZE>            Override I3C size\n");
+    printf("      --mci-offset <MCI_OFFSET>        Override MCI offset\n");
+    printf("      --mci-size <MCI_SIZE>            Override MCI size\n");
     printf("      --primary-flash-offset <PRIMARY_FLASH_OFFSET>\n");
     printf("                                       Override primary flash offset\n");
     printf("      --primary-flash-size <PRIMARY_FLASH_SIZE>\n");
@@ -84,6 +96,8 @@ void print_usage(const char* program_name) {
     printf("      --soc-size <SOC_SIZE>            Override Caliptra SoC interface size\n");
     printf("      --otp-offset <OTP_OFFSET>        Override OTP offset\n");
     printf("      --otp-size <OTP_SIZE>            Override OTP size\n");
+    printf("      --lc-offset <LC_OFFSET>          Override LC offset\n");
+    printf("      --lc-size <LC_SIZE>              Override LC size\n");
     printf("      --mbox-offset <MBOX_OFFSET>      Override Caliptra mailbox offset\n");
     printf("      --mbox-size <MBOX_SIZE>          Override Caliptra mailbox size\n");
 }
@@ -92,6 +106,8 @@ void print_usage(const char* program_name) {
 void free_run(struct CEmulator* emulator) {
     printf("Running emulator in normal mode...\n");
     
+    printf("Allocated initial UART buffer: %zu MB\n", buffer_size / (1024 * 1024));
+    
     int step_count = 0;
     while (1) {
         enum CStepAction action = emulator_step(emulator);
@@ -99,29 +115,21 @@ void free_run(struct CEmulator* emulator) {
         switch (action) {
             case Continue:
                 step_count++;
-                // Check for UART output every 1000 steps
-                if (step_count % 1000 == 0) {
-                    char output[1024];
-                    int output_len = emulator_get_uart_output(emulator, output, sizeof(output) - 1);
-                    if (output_len > 0) {
-                        output[output_len] = '\0';
-                        printf("UART: %s", output);
-                    }
-                    
-                    printf("Completed %d steps\n", step_count);
-                }
                 break;
                 
             case Break:
                 printf("Emulator hit breakpoint after %d steps\n", step_count);
+                free(uart_buffer);
                 return;
                 
             case ExitSuccess:
                 printf("Emulator finished successfully after %d steps\n", step_count);
+                free(uart_buffer);
                 return;
                 
             case ExitFailure:
                 printf("Emulator exited with failure after %d steps\n", step_count);
+                free(uart_buffer);
                 return;
         }
     }
@@ -224,18 +232,25 @@ int main(int argc, char *argv[]) {
         {"uart-size", required_argument, 0, 143},
         {"sram-offset", required_argument, 0, 144},
         {"sram-size", required_argument, 0, 145},
-        {"i3c-offset", required_argument, 0, 146},
-        {"i3c-size", required_argument, 0, 147},
-        {"primary-flash-offset", required_argument, 0, 148},
-        {"primary-flash-size", required_argument, 0, 149},
-        {"secondary-flash-offset", required_argument, 0, 150},
-        {"secondary-flash-size", required_argument, 0, 151},
-        {"soc-offset", required_argument, 0, 152},
-        {"soc-size", required_argument, 0, 153},
-        {"otp-offset", required_argument, 0, 154},
-        {"otp-size", required_argument, 0, 155},
-        {"mbox-offset", required_argument, 0, 156},
-        {"mbox-size", required_argument, 0, 157},
+        {"pic-offset", required_argument, 0, 146},
+        {"dccm-offset", required_argument, 0, 147},
+        {"dccm-size", required_argument, 0, 148},
+        {"i3c-offset", required_argument, 0, 149},
+        {"i3c-size", required_argument, 0, 150},
+        {"mci-offset", required_argument, 0, 151},
+        {"mci-size", required_argument, 0, 152},
+        {"primary-flash-offset", required_argument, 0, 153},
+        {"primary-flash-size", required_argument, 0, 154},
+        {"secondary-flash-offset", required_argument, 0, 155},
+        {"secondary-flash-size", required_argument, 0, 156},
+        {"soc-offset", required_argument, 0, 157},
+        {"soc-size", required_argument, 0, 158},
+        {"otp-offset", required_argument, 0, 159},
+        {"otp-size", required_argument, 0, 160},
+        {"lc-offset", required_argument, 0, 161},
+        {"lc-size", required_argument, 0, 162},
+        {"mbox-offset", required_argument, 0, 163},
+        {"mbox-size", required_argument, 0, 164},
         {"help", no_argument, 0, 'h'},
         {"version", no_argument, 0, 'V'},
         {0, 0, 0, 0}
@@ -323,40 +338,61 @@ int main(int argc, char *argv[]) {
             case 145: // --sram-size
                 config.sram_size = parse_hex_or_decimal(optarg);
                 break;
-            case 146: // --i3c-offset
+            case 146: // --pic-offset
+                config.pic_offset = parse_hex_or_decimal(optarg);
+                break;
+            case 147: // --dccm-offset
+                config.dccm_offset = parse_hex_or_decimal(optarg);
+                break;
+            case 148: // --dccm-size
+                config.dccm_size = parse_hex_or_decimal(optarg);
+                break;
+            case 149: // --i3c-offset
                 config.i3c_offset = parse_hex_or_decimal(optarg);
                 break;
-            case 147: // --i3c-size
+            case 150: // --i3c-size
                 config.i3c_size = parse_hex_or_decimal(optarg);
                 break;
-            case 148: // --primary-flash-offset
+            case 151: // --mci-offset
+                config.mci_offset = parse_hex_or_decimal(optarg);
+                break;
+            case 152: // --mci-size
+                config.mci_size = parse_hex_or_decimal(optarg);
+                break;
+            case 153: // --primary-flash-offset
                 config.primary_flash_offset = parse_hex_or_decimal(optarg);
                 break;
-            case 149: // --primary-flash-size
+            case 154: // --primary-flash-size
                 config.primary_flash_size = parse_hex_or_decimal(optarg);
                 break;
-            case 150: // --secondary-flash-offset
+            case 155: // --secondary-flash-offset
                 config.secondary_flash_offset = parse_hex_or_decimal(optarg);
                 break;
-            case 151: // --secondary-flash-size
+            case 156: // --secondary-flash-size
                 config.secondary_flash_size = parse_hex_or_decimal(optarg);
                 break;
-            case 152: // --soc-offset
+            case 157: // --soc-offset
                 config.soc_offset = parse_hex_or_decimal(optarg);
                 break;
-            case 153: // --soc-size
+            case 158: // --soc-size
                 config.soc_size = parse_hex_or_decimal(optarg);
                 break;
-            case 154: // --otp-offset
+            case 159: // --otp-offset
                 config.otp_offset = parse_hex_or_decimal(optarg);
                 break;
-            case 155: // --otp-size
+            case 160: // --otp-size
                 config.otp_size = parse_hex_or_decimal(optarg);
                 break;
-            case 156: // --mbox-offset
+            case 161: // --lc-offset
+                config.lc_offset = parse_hex_or_decimal(optarg);
+                break;
+            case 162: // --lc-size
+                config.lc_size = parse_hex_or_decimal(optarg);
+                break;
+            case 163: // --mbox-offset
                 config.mbox_offset = parse_hex_or_decimal(optarg);
                 break;
-            case 157: // --mbox-size
+            case 164: // --mbox-size
                 config.mbox_size = parse_hex_or_decimal(optarg);
                 break;
             case 'h':
