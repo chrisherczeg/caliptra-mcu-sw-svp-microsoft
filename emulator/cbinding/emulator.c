@@ -13,6 +13,7 @@ Abstract:
 
 --*/
 
+#define _DEFAULT_SOURCE  // For usleep on some systems
 #include "emulator_cbinding.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,7 +42,10 @@ void enable_raw_mode() {
     }
     
     struct termios raw = original_termios;
-    raw.c_lflag &= ~(ECHO | ICANON | ISIG); // Disable echo, canonical mode, and signals
+    // Disable echo and canonical mode, but keep output processing for proper newlines
+    raw.c_lflag &= ~(ECHO | ECHOE | ECHOK | ECHONL | ICANON | ISIG | IEXTEN);
+    raw.c_iflag &= ~(IXON | ICRNL | INLCR); // Disable flow control and CR/LF translation on input
+    // Keep OPOST enabled for proper output formatting (newline handling)
     raw.c_cc[VMIN] = 0;  // Non-blocking read
     raw.c_cc[VTIME] = 0; // No timeout
     
@@ -163,15 +167,7 @@ void free_run(struct CEmulator* emulator) {
             // Try to send character to UART RX
             if (emulator_uart_rx_ready(emulator)) {
                 emulator_send_uart_char(emulator, input_char);
-                // Echo the character back to console for user feedback
-                if (input_char == 8) {
-                    printf("\b \b"); // Backspace: move back, print space, move back
-                } else if (input_char == '\r' || input_char == '\n') {
-                    printf("\n");
-                } else if (input_char >= 32 && input_char <= 126) { // Printable characters
-                    printf("%c", input_char);
-                }
-                fflush(stdout);
+                // No local echo - let the UART output handle display
             }
         }
         
