@@ -19,7 +19,7 @@ use crate::i3c_socket;
 use crate::i3c_socket::start_i3c_socket;
 use crate::mctp_transport::MctpTransport;
 use crate::tests;
-use crate::{EMULATOR_RUNNING, MCU_RUNTIME_STARTED};
+use crate::{EMULATOR_RUNNING, EMULATOR_TICKS, MCU_RUNTIME_STARTED, TICK_COND};
 use caliptra_emu_bus::{Bus, Clock, Timer};
 use caliptra_emu_cpu::{Cpu, Pic, RvInstr, StepAction};
 use caliptra_emu_cpu::{Cpu as CaliptraMainCpu, StepAction as CaliptraMainStepAction};
@@ -31,7 +31,7 @@ use emulator_bmc::Bmc;
 use emulator_caliptra::{start_caliptra, StartCaliptraArgs};
 use emulator_consts::{DEFAULT_CPU_ARGS, RAM_ORG, ROM_SIZE};
 use emulator_periph::{
-    DoeMboxPeriph, DummyDoeMbox, DummyFlashCtrl, I3c, I3cController, Mci, McuRootBus,
+    DoeMboxPeriph, DummyDoeMbox, DummyFlashCtrl, I3c, I3cController, LcCtrl, Mci, McuRootBus,
     McuRootBusArgs, McuRootBusOffsets, Otp,
 };
 use emulator_registers_generated::dma::DmaPeripheral;
@@ -432,8 +432,7 @@ impl Emulator {
         let dma_rom_sram = root_bus.rom_sram.clone();
         let direct_read_flash = root_bus.direct_read_flash.clone();
 
-        let i3c_error_irq = pic.register_irq(McuRootBus::I3C_ERROR_IRQ);
-        let i3c_notif_irq = pic.register_irq(McuRootBus::I3C_NOTIF_IRQ);
+        let i3c_irq = pic.register_irq(McuRootBus::I3C_IRQ);
 
         println!("Starting I3C Socket, port {}", cli.i3c_port.unwrap_or(0));
 
@@ -446,8 +445,7 @@ impl Emulator {
         let i3c = I3c::new(
             &clock.clone(),
             &mut i3c_controller,
-            i3c_error_irq,
-            i3c_notif_irq,
+            i3c_irq,
             cli.hw_revision.clone(),
         );
         let i3c_dynamic_address = i3c.get_dynamic_address().unwrap();
@@ -587,6 +585,7 @@ impl Emulator {
                     feature = "test-mcu-rom-flash-access",
                     feature = "test-log-flash-linear",
                     feature = "test-log-flash-circular",
+                    feature = "test-log-flash-usermode",
                 )) {
                     Some(
                         tempfile::NamedTempFile::new()
@@ -681,6 +680,7 @@ impl Emulator {
             v.try_into().unwrap()
         });
 
+        let lc = LcCtrl::new();
         let otp = Otp::new(&clock.clone(), cli.otp, owner_pk_hash, vendor_pk_hash)?;
         let mci = Mci::new(&clock.clone(), ext_mci);
         let mut auto_root_bus = AutoRootBus::new(
@@ -694,7 +694,7 @@ impl Emulator {
             Some(Box::new(dma_ctrl)),
             None,
             Some(Box::new(otp)),
-            None,
+            Some(Box::new(lc)),
             None,
             None,
             None,
@@ -895,6 +895,12 @@ impl Emulator {
     pub fn step(&mut self) -> StepAction {
         if !EMULATOR_RUNNING.load(Ordering::Relaxed) {
             return StepAction::Break;
+        }
+
+        let now = self.mcu_cpu.clock.now();
+        EMULATOR_TICKS.store(now, Ordering::Relaxed);
+        if now % 1000 == 0 {
+            TICK_COND.notify_all();
         }
 
         if let Some(ref stdin_uart) = self.stdin_uart {
