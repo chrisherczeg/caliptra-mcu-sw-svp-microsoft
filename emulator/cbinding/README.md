@@ -1,357 +1,353 @@
-# Emulator C Bindings
+# Caliptra MCU Emulator C Bindings
 
-This crate provides C bindings for the Caliptra MCU Emulator, allowing the emulator to be used from C code while maintaining the emulator's lifetime in C-allocated memory.
+This crate provides C bindings for the Caliptra MCU Emulator, allowing C applications to control the emulator with real-time UART streaming and console input support.
 
-## Features
+## Overview
 
-- **Ze#### Connecting with GDB**: The emula#### Important Notes
+The C bindings provide:
+- **Complete C control**: C code manages emulator memory allocation and lifetime
+- **Real-time UART streaming**: Live UART output display and console input handling
+- **Full configuration access**: All emulator parameters available from C
+- **GDB integration**: Built-in GDB server support for debugging
+- **Static library**: Easy integration into existing C projects
+- **Zero changes to emulator.rs**: Original Rust code remains untouched
 
-- When GDB port is set (non-zero), the emulator starts in GDB mode
-- `emulator_step()` works in both normal and GDB modes
-- In GDB mode, you can choose between C-controlled stepping or GDB-controlled execution
-- The GDB server runs on the specified port and accepts standard GDB remote protocol commands
-- Use `emulator_run_gdb_server()` for blocking GDB sessions where GDB controls execution
-- Use repeated `emulator_step()` calls when you want C code to control execution pacee is stored in C-allocated memory
-- **Static library output**: Compiles to a static library for easy integration
-- **Memory safety**: Proper lifetime management with C-controlled allocation
-- **No changes to emulator.rs**: The original emulator code remains untouched
-- **Full configuration support**: All emulator configuration options are exposed
+## Architecture
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   C Application │───▶│   C Bindings    │───▶│   Rust Emulator │
+│                 │    │  (cbinding crate)│    │   (emulator crate)│
+│ - Memory mgmt   │    │ - C interface   │    │ - Original code │
+│ - UART I/O      │    │ - Type safety   │    │ - Full features │
+│ - Console input │    │ - Error handling│    │ - Unchanged     │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
 
 ## Building
 
 ### Prerequisites
-
 - Rust toolchain
-- `cbindgen` for header generation (automatically installed as build dependency)
 - C compiler (gcc/clang)
+- cbindgen (automatically installed as build dependency)
 
-### Build the static library
+### Build Steps
 
 ```bash
 cd emulator/cbinding
+
+# Build the static library and generate headers
 cargo build --release
+
+# Build the C example application
+make
 ```
 
-This will generate:
+This generates:
 - `target/release/libemulator_cbinding.a` - Static library
-- `emulator_cbinding.h` - C header file (generated during build)
+- `emulator_cbinding.h` - C header file
+- `emulator` - Example C application
 
-### Build the example
+## Quick Start
 
-```bash
-make example
-```
-
-Or manually:
-```bash
-gcc -std=c11 -Wall -Wextra -O2 \
-    -I. \
-    -o example \
-    example.c \
-    -L./target/release \
-    -lemulator_cbinding \
-    -lpthread -ldl -lm
-```
-
-## Usage
-
-### 1. Memory Allocation
-
-The C code is responsible for allocating memory for the emulator:
+### Basic Usage
 
 ```c
 #include "emulator_cbinding.h"
+#include <stdio.h>
+#include <stdlib.h>
 
-// Get memory requirements
-size_t size = emulator_size_required();
-
-// Allocate aligned memory (8-byte alignment)
-void* emulator_memory = aligned_alloc(8, size);
+int main() {
+    // 1. Allocate memory
+    size_t size = emulator_get_size();
+    size_t align = emulator_get_alignment();
+    void* memory = aligned_alloc(align, size);
+    
+    // 2. Configure emulator
+    struct CEmulatorConfig config = {
+        .rom_path = "rom.bin",
+        .firmware_path = "firmware.bin",
+        .caliptra_rom_path = "caliptra_rom.bin",
+        .caliptra_firmware_path = "caliptra_firmware.bin",
+        .soc_manifest_path = "manifest.bin",
+        .gdb_port = 0,  // No GDB
+        .stdin_uart = 1,  // Enable console input
+        .capture_uart_output = 1,  // Capture UART output
+        // All memory layout parameters default to -1 (use defaults)
+        .rom_offset = -1, .rom_size = -1,
+        .uart_offset = -1, .uart_size = -1,
+        // ... other parameters
+    };
+    
+    // 3. Initialize
+    if (emulator_init((struct CEmulator*)memory, &config) != Success) {
+        free(memory);
+        return 1;
+    }
+    
+    // 4. Run with UART streaming
+    char uart_buffer[1024];
+    while (1) {
+        enum CStepAction action = emulator_step((struct CEmulator*)memory);
+        
+        // Check for UART output
+        int len = emulator_get_uart_output_streaming(
+            (struct CEmulator*)memory, uart_buffer, sizeof(uart_buffer));
+        if (len > 0) {
+            printf("%.*s", len, uart_buffer);
+            fflush(stdout);
+        }
+        
+        if (action != Continue) break;
+    }
+    
+    // 5. Cleanup
+    emulator_destroy((struct CEmulator*)memory);
+    free(memory);
+    return 0;
+}
 ```
 
-### 2. Configuration
+## Configuration
 
-Configure the emulator using the `EmulatorArgs` structure:
-
+### Required Parameters
 ```c
-EmulatorArgs args = {
-    .soc_address_hi = 0x00000000,      // High 32 bits of SoC address
-    .soc_address_lo = 0x40000000,      // Low 32 bits of SoC address
-    .soc_size = 0x800000,              // SoC memory size (8MB)
-    .uc_address_hi = 0x00000000,       // High 32 bits of uC address
-    .uc_address_lo = 0x50000000,       // Low 32 bits of uC address  
-    .uc_size = 0x10000,                // uC memory size (64KB)
-    .soc_manifest = "/path/to/manifest", // Path to SoC manifest file
-    .gdb_port = 0                      // GDB port (0 = disabled)
+struct CEmulatorConfig config = {
+    // Required file paths
+    .rom_path = "path/to/rom.bin",
+    .firmware_path = "path/to/firmware.bin", 
+    .caliptra_rom_path = "path/to/caliptra_rom.bin",
+    .caliptra_firmware_path = "path/to/caliptra_firmware.bin",
+    .soc_manifest_path = "path/to/manifest.bin",
+    
+    // Basic configuration
+    .gdb_port = 0,                    // 0 = no GDB, >0 = GDB port
+    .i3c_port = 0,                    // 0 = no I3C, >0 = I3C port
+    .trace_instr = 0,                 // 0 = no trace, 1 = trace instructions
+    .stdin_uart = 1,                  // 1 = enable console input to UART
+    .manufacturing_mode = 0,          // 0 = normal, 1 = manufacturing mode
+    .capture_uart_output = 1,         // 1 = capture UART output
+    
+    // Hardware version
+    .hw_revision_major = 2,
+    .hw_revision_minor = 0,
+    .hw_revision_patch = 0,
 };
 ```
 
-### 3. Initialization
-
-Initialize the emulator in the allocated memory:
+### Memory Layout Customization
+All memory layout parameters use `-1` for defaults or specific values for custom layouts:
 
 ```c
-EmulatorError result = emulator_init((struct CEmulator*)emulator_memory, &args);
-if (result != Success) {
-    // Handle error
-    free(emulator_memory);
-    return -1;
-}
+// Use all defaults (recommended for most cases)
+.rom_offset = -1, .rom_size = -1,
+.uart_offset = -1, .uart_size = -1,
+.sram_offset = -1, .sram_size = -1,
+// ... all other offset/size parameters
+
+// Custom memory layout example
+.rom_offset = 0x40000000,   // ROM at 1GB
+.rom_size = 0x100000,       // 1MB ROM
+.sram_offset = 0x20000000,  // SRAM at 512MB
+.sram_size = 0x800000,      // 8MB SRAM
+// ... customize as needed
 ```
 
-### 4. Execution
+Available memory layout parameters:
+- `rom_offset/size`, `uart_offset/size`, `ctrl_offset/size`
+- `spi_offset/size`, `sram_offset/size`, `pic_offset`
+- `dccm_offset/size`, `i3c_offset/size`
+- `primary_flash_offset/size`, `secondary_flash_offset/size`
+- `mci_offset/size`, `dma_offset/size`
+- `mbox_offset/size`, `soc_offset/size`
+- `otp_offset/size`, `lc_offset/size`
+- `external_test_sram_offset/size`
 
-Step the emulator in a loop:
+## UART and Console Features
 
-```c
-EmulatorError result;
-do {
-    result = emulator_step((struct CEmulator*)emulator_memory);
-    
-    // Handle different results
-    switch (result) {
-        case Success:
-            // Emulator step completed successfully
-            break;
-        case StepComplete:
-            // Emulator finished execution
-            break;
-        default:
-            // Error occurred
-            break;
-    }
-} while (result == Success);
-```
-
-### 5. UART Output
-
-If UART output capture is enabled, retrieve it periodically:
+### Real-time UART Streaming
+The emulator supports real-time UART output and console input:
 
 ```c
+// Enable UART features in configuration
+config.stdin_uart = 1;          // Console input → UART RX
+config.capture_uart_output = 1; // Capture UART TX
+
+// In your main loop
 char uart_buffer[1024];
-int bytes_read = emulator_get_uart_output(
-    (CEmulator*)emulator_memory,
-    uart_buffer,
-    sizeof(uart_buffer)
-);
-
-if (bytes_read > 0) {
-    printf("UART: %s\n", uart_buffer);
+while (1) {
+    emulator_step(emulator);
+    
+    // Get streaming UART output (clears buffer after reading)
+    int len = emulator_get_uart_output_streaming(emulator, uart_buffer, sizeof(uart_buffer));
+    if (len > 0) {
+        printf("%.*s", len, uart_buffer);  // Display UART output
+        fflush(stdout);
+    }
 }
 ```
 
-### 6. Cleanup
-
-Always clean up when done:
-
+### Console Input Functions
 ```c
-emulator_destroy((struct CEmulator*)emulator_memory);
-free(emulator_memory);
+// Send character to UART RX
+int emulator_send_uart_char(struct CEmulator* emulator, char character);
+
+// Check if UART RX is ready for input
+int emulator_uart_rx_ready(struct CEmulator* emulator);
+
+// Get UART output (keeps data in buffer)
+int emulator_get_uart_output(struct CEmulator* emulator, char* buffer, size_t size);
+
+// Get UART output (clears buffer after reading - for streaming)
+int emulator_get_uart_output_streaming(struct CEmulator* emulator, char* buffer, size_t size);
 ```
 
 ## GDB Integration
 
-The emulator supports GDB debugging through a built-in GDB server. When enabled, you can connect with `gdb` to debug the emulated firmware.
-
-### Setting up GDB Mode
-
+### Basic GDB Setup
 ```c
-// Configure emulator with GDB support
-EmulatorArgs args = {
-    .soc_address_hi = 0x00000000,
-    .soc_address_lo = 0x40000000,
-    .soc_size = 0x800000,
-    .uc_address_hi = 0x00000000,
-    .uc_address_lo = 0x50000000,
-    .uc_size = 0x10000,
-    .soc_manifest = "/path/to/manifest",
-    .gdb_port = 3333  // Enable GDB on port 3333
+struct CEmulatorConfig config = {
+    // ... other config ...
+    .gdb_port = 3333,  // Enable GDB server on port 3333
 };
 
-EmulatorError result = emulator_init(memory, &args);
+emulator_init(memory, &config);
+
+if (emulator_is_gdb_mode(memory)) {
+    printf("GDB server available on port %u\n", emulator_get_gdb_port(memory));
+    printf("Connect with: gdb -ex 'target remote :%u'\n", emulator_get_gdb_port(memory));
+}
 ```
 
 ### GDB Usage Patterns
 
-**Pattern 1: C-Controlled Execution with GDB Available**
+**C-Controlled Execution with GDB Available:**
 ```c
-// Initialize emulator with GDB port
-emulator_init(memory, &args);
-
-// Check if we're in GDB mode
-if (emulator_is_gdb_mode(memory)) {
-    printf("GDB server available on port %u\n", emulator_get_gdb_port(memory));
-    printf("Connect with: gdb -ex 'target remote :3333'\n");
-}
-
-// Your C code controls execution stepping
-for (int i = 0; i < 1000; i++) {
-    result = emulator_step(memory);  // Works in both normal and GDB modes
-    if (result != Success) {
-        break;
-    }
-    
-    // You can still get UART output, check state, etc.
-    char output[256];
-    int len = emulator_get_uart_output(memory, output, sizeof(output));
-    if (len > 0) {
-        printf("UART: %.*s\n", len, output);
-    }
+// Your C code controls stepping, GDB available for inspection
+while (1) {
+    enum CStepAction action = emulator_step(memory);
+    // Handle UART, check state, etc.
+    if (action != Continue) break;
 }
 ```
 
-**Pattern 2: GDB-Controlled Execution**
+**GDB-Controlled Execution:**
 ```c
-// Initialize emulator with GDB port
-emulator_init(memory, &args);
-
+// GDB controls all execution (blocking)
 if (emulator_is_gdb_mode(memory)) {
-    printf("Starting GDB server on port %u\n", emulator_get_gdb_port(memory));
-    printf("Connect with: gdb -ex 'target remote :%u'\n", emulator_get_gdb_port(memory));
-    
-    // This will block until GDB session ends
-    EmulatorError result = emulator_run_gdb_server(memory);
-    
-    if (result == Success) {
-        printf("GDB session completed\n");
-    } else {
-        printf("GDB session failed\n");
-    }
-}
-```
-
-**Pattern 3: Hybrid Control**
-```c
-// Start with C-controlled stepping for initialization
-emulator_init(memory, &args);
-
-// Run some initialization steps under C control
-for (int i = 0; i < 100; i++) {
-    emulator_step(memory);
-}
-
-printf("Initialization complete. Starting GDB server...\n");
-
-// Then hand over control to GDB for debugging
-if (emulator_is_gdb_mode(memory)) {
-    emulator_run_gdb_server(memory);
-}
-```
-
-**Pattern 3: Hybrid Control**
-```c
-// Start with C-controlled stepping for initialization
-emulator_init(memory, &args);
-
-// Run some initialization steps under C control
-for (int i = 0; i < 100; i++) {
-    emulator_step(memory);
-}
-
-printf("Initialization complete. Starting GDB server...\n");
-
-// Then hand over control to GDB for debugging
-if (emulator_is_gdb_mode(memory)) {
-    emulator_run_gdb_server(memory);
+    emulator_run_gdb_server(memory);  // Blocks until GDB disconnects
 }
 ```
 
 ### Connecting with GDB
-
-Once the emulator is running with GDB support:
-
 ```bash
-# Start gdb with your firmware binary
 gdb firmware.elf
-
-# Connect to the emulator
 (gdb) target remote :3333
-
-# Now you can use standard gdb commands:
 (gdb) break main
 (gdb) continue
-(gdb) step
-(gdb) info registers
-(gdb) x/10x $sp
 ```
 
-### Important Notes
+## API Reference
 
-- When GDB port is set (non-zero), the emulator starts in GDB mode
-- `emulator_step()` works in both normal and GDB modes
-- In GDB mode, you can choose between C-controlled stepping or GDB-controlled execution
-- The GDB server runs on the specified port and accepts standard GDB remote protocol commands
-- Use `emulator_run_gdb_server()` for blocking GDB sessions where GDB controls execution
-- Use repeated `emulator_step()` calls when you want C code to control execution pace
-
-## Error Handling
-
-The API uses error codes for error handling:
-
+### Memory Management
 ```c
-typedef enum {
+size_t emulator_get_size();           // Required memory size
+size_t emulator_get_alignment();      // Required alignment
+```
+
+### Initialization and Control
+```c
+enum EmulatorError emulator_init(struct CEmulator* memory, const struct CEmulatorConfig* config);
+enum CStepAction emulator_step(struct CEmulator* memory);
+void emulator_destroy(struct CEmulator* memory);
+unsigned int get_pc(struct CEmulator* memory);  // Get program counter
+```
+
+### Error Codes
+```c
+enum EmulatorError {
     Success = 0,
     InvalidArgs = -1,
     InitializationFailed = -2,
     NullPointer = -3,
     InvalidEmulator = -4,
-    StepComplete = -5,
-    GdbError = -6,
-} EmulatorError;
+};
+
+enum CStepAction {
+    Continue = 0,
+    Break = 1,
+    ExitSuccess = 2,
+    ExitFailure = 3,
+};
 ```
 
-## Configuration Parameters
-
-The `EmulatorArgs` structure provides memory layout configuration:
-
-- **soc_address_hi/lo**: High and low 32 bits of the SoC memory base address
-- **soc_size**: Size of the SoC memory region
-- **uc_address_hi/lo**: High and low 32 bits of the microcontroller memory base address
-- **uc_size**: Size of the microcontroller memory region
-- **soc_manifest**: Path to the SoC manifest file
-- **gdb_port**: GDB server port (0 = disabled)
+### GDB Functions
+```c
+int emulator_is_gdb_mode(struct CEmulator* memory);
+unsigned int emulator_get_gdb_port(struct CEmulator* memory);
+enum EmulatorError emulator_run_gdb_server(struct CEmulator* memory);
 ```
 
-## Integration Notes
+### Utility Functions
+```c
+enum EmulatorError trigger_exit_request();  // Request clean shutdown
+```
+
+## Integration
 
 ### Linking
-
-When linking with the static library, you may need additional system libraries:
-
 ```bash
--lemulator_cbinding -lpthread -ldl -lm
+gcc -o my_app my_app.c \
+    -L./target/release \
+    -lemulator_cbinding \
+    -lpthread -ldl -lm
 ```
 
-### Memory Alignment
+### Command Line Example
+The included C application supports the same command line arguments as the Rust emulator:
 
-Always use 8-byte alignment when allocating memory for the emulator. Improper alignment can cause crashes or undefined behavior.
+```bash
+./emulator \
+    --rom rom.bin \
+    --firmware firmware.bin \
+    --caliptra-rom caliptra_rom.bin \
+    --caliptra-firmware caliptra_firmware.bin \
+    --soc-manifest manifest.bin \
+    --gdb-port 3333 \
+    --trace-instr
+```
 
-### Thread Safety
+## Platform Support
 
-The emulator is not thread-safe. If using in a multi-threaded environment, ensure proper synchronization.
-
-### Platform Support
-
-The bindings support the same platforms as the underlying Rust emulator:
+Supports the same platforms as the Rust emulator:
 - Linux (x86_64, aarch64)
-- macOS (x86_64, aarch64)  
+- macOS (x86_64, aarch64)
 - Windows (x86_64)
 
-## Example
+## Thread Safety
 
-See `example.c` for a complete working example that demonstrates:
-- Memory allocation and configuration
-- Emulator initialization and execution
-- UART output capture
+- The emulator is **not thread-safe**
+- Use external synchronization in multi-threaded environments
+- Each emulator instance should be accessed from only one thread
+
+## Example Application
+
+The included `emulator.c` demonstrates:
+- Complete command line argument parsing
+- Real-time console input handling with raw terminal mode
+- Live UART output streaming
 - GDB integration
-- Proper cleanup
+- Proper cleanup and error handling
+- Signal handling (Ctrl+C)
 
-Basic usage:
+Run with console input:
 ```bash
-./example
+./emulator --rom rom.bin --firmware fw.bin --caliptra-rom crom.bin --caliptra-firmware cfw.bin --soc-manifest manifest.bin
 ```
 
-GDB usage:
+Run with GDB:
 ```bash
-./example --gdb 3333
+./emulator --gdb-port 3333 --rom rom.bin --firmware fw.bin --caliptra-rom crom.bin --caliptra-firmware cfw.bin --soc-manifest manifest.bin
 ```
+
+This provides a complete, production-ready C interface to the Caliptra MCU Emulator with full feature parity and real-time interaction capabilities.
