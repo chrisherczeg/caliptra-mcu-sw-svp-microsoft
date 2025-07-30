@@ -1,11 +1,11 @@
 # Licensed under the Apache-2.0 license
 #
-# Makefile for building the emulator C binding example
+# Makefile for building the Caliptra MCU Emulator C binding
 
 # Default target
-.PHONY: all clean lib example
+.PHONY: all clean lib header emulator
 
-all: lib example
+all: lib header emulator
 
 # Build the Rust static library
 lib:
@@ -15,27 +15,27 @@ lib:
 header:
 	cargo build --release
 
-# Build the C example
-example: lib header
+# Build the C emulator binary
+emulator: lib header
 	gcc -std=c11 -Wall -Wextra -O2 \
 		-I. \
-		-o example \
-		example.c \
-		-L./target/release \
+		-o emulator \
+		emulator.c \
+		-L../../target/release \
 		-lemulator_cbinding \
 		-lpthread -ldl -lm
 
 # Clean build artifacts
 clean:
 	cargo clean
-	rm -f example emulator_cbinding.h
+	rm -f emulator emulator_cbinding.h
 
 # Help target
 help:
 	@echo "Available targets:"
-	@echo "  all     - Build library and example (default)"
-	@echo "  lib     - Build the Rust static library"
-	@echo "  header  - Generate the C header file"
-	@echo "  example - Build the C example program"
-	@echo "  clean   - Clean build artifacts"
-	@echo "  help    - Show this help message"
+	@echo "  all      - Build library, header, and emulator binary (default)"
+	@echo "  lib      - Build the Rust static library"
+	@echo "  header   - Generate the C header file"
+	@echo "  emulator - Build the C emulator binary"
+	@echo "  clean    - Clean build artifacts"
+	@echo "  help     - Show this help message"
