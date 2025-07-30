@@ -12,9 +12,9 @@ Abstract:
 
 --*/
 
-use emulator::{EmulatorArgs, Emulator, EMULATOR_RUNNING, gdb};
 use caliptra_emu_cpu::StepAction;
 use clap::Parser;
+use emulator::{gdb, Emulator, EmulatorArgs, EMULATOR_RUNNING};
 use std::cell::RefCell;
 use std::io;
 use std::io::IsTerminal;

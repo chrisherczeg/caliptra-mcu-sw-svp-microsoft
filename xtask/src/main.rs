@@ -114,6 +114,7 @@ enum Commands {
         /// Platform to build for. Default: emulator
         #[arg(long)]
         platform: Option<String>,
+
         /// Features to build ROM with.
         #[arg(long)]
         features: Option<String>,
@@ -123,6 +124,24 @@ enum Commands {
         /// Run with tracing options
         #[arg(short, long, default_value_t = false)]
         trace: bool,
+    },
+    /// Build Caliptra ROM, firmware bundle, MCU ROM, runtime, and SoC manifest and package them together
+    AllBuild {
+        #[arg(long)]
+        output: Option<String>,
+
+        /// Platform to build for. Default: emulator
+        #[arg(long)]
+        platform: Option<String>,
+
+        #[arg(long, default_value_t = false)]
+        use_dccm_for_stack: bool,
+
+        #[arg(long, value_parser=maybe_hex::<u32>)]
+        dccm_offset: Option<u32>,
+
+        #[arg(long, value_parser=maybe_hex::<u32>)]
+        dccm_size: Option<u32>,
     },
     /// Commands related to flash images
     FlashImage {
@@ -166,8 +185,37 @@ enum Commands {
     FpgaInstallKernelModules,
     /// Run firmware on the FPGA
     FpgaRun {
+        /// ZIP with all images.
         #[arg(long)]
-        mcu_rom: PathBuf,
+        zip: Option<PathBuf>,
+
+        /// Where to load the MCU ROM from.
+        #[arg(long)]
+        mcu_rom: Option<PathBuf>,
+
+        /// Where to load the Caliptra ROM from.
+        #[arg(long)]
+        caliptra_rom: Option<PathBuf>,
+
+        /// Where to load and save OTP memory.
+        #[arg(long)]
+        otp: Option<PathBuf>,
+
+        /// Save OTP memory to a file after running.
+        #[arg(long, default_value_t = false)]
+        save_otp: bool,
+
+        /// Run UDS provisioning flow
+        #[arg(long, default_value_t = false)]
+        uds: bool,
+
+        /// Number of "steps" to run the FPGA before stopping
+        #[arg(long, default_value_t = 1_000_000)]
+        steps: u64,
+
+        /// Whether to disable the recovery interface and I3C
+        #[arg(long, default_value_t = false)]
+        no_recovery: bool,
     },
     /// Utility to create and parse PLDM firmware packages
     PldmFirmware {
@@ -240,6 +288,19 @@ enum PldmFirmwareCommands {
 fn main() {
     let cli = Xtask::parse();
     let result = match &cli.xtask {
+        Commands::AllBuild {
+            output,
+            platform,
+            use_dccm_for_stack,
+            dccm_offset,
+            dccm_size,
+        } => mcu_builder::all_build(
+            output.as_deref(),
+            platform.as_deref(),
+            *use_dccm_for_stack,
+            *dccm_offset,
+            *dccm_size,
+        ),
         Commands::Runtime { .. } => runtime::runtime_run(cli.xtask),
         Commands::RuntimeBuild {
             features,
@@ -263,6 +324,13 @@ fn main() {
                 *use_dccm_for_stack,
                 *dccm_offset,
                 *dccm_size,
+                match platform.as_deref() {
+                    None | Some("emulator") => {
+                        Some(&mcu_config_emulator::flash::LOGGING_FLASH_CONFIG)
+                    }
+                    Some("fpga") => None,
+                    _ => panic!("Unsupported platform"),
+                },
             )
             .map(|_| ())
         }
@@ -304,7 +372,7 @@ fn main() {
             addrmap,
         } => registers::autogen(*check, files, addrmap),
         Commands::Deps => deps::check(),
-        Commands::FpgaRun { mcu_rom } => fpga::fpga_run(mcu_rom),
+        Commands::FpgaRun { .. } => fpga::fpga_run(cli.xtask),
         Commands::FpgaInstallKernelModules => fpga::fpga_install_kernel_modules(),
         Commands::PldmFirmware { subcommand } => match subcommand {
             PldmFirmwareCommands::Create { manifest, file } => pldm_fw_pkg::create(manifest, file),

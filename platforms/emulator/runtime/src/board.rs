@@ -20,6 +20,7 @@ use kernel::platform::SyscallFilter;
 use kernel::platform::{KernelResources, SyscallDriverLookup};
 use kernel::process;
 use kernel::scheduler::cooperative::CooperativeSched;
+use kernel::storage_volume;
 use kernel::syscall;
 use kernel::utilities::registers::interfaces::ReadWriteable;
 use kernel::{create_capability, debug, static_init};
@@ -62,6 +63,10 @@ extern "C" {
     static _ssram: u8;
     /// The end of the kernel / app RAM (Included only for kernel PMP)
     static _esram: u8;
+    /// The start of the flash region for logging
+    static _sstorage: u8;
+    /// The end of the flash region for logging
+    static _estorage: u8;
 
     pub(crate) static _pic_vector_table: u8;
 }
@@ -87,7 +92,9 @@ pub static mut PROCESS_PRINTER: Option<
     feature = "test-flash-ctrl-read-write-page",
     feature = "test-flash-ctrl-erase-page",
     feature = "test-flash-storage-read-write",
-    feature = "test-flash-storage-erase"
+    feature = "test-flash-storage-erase",
+    feature = "test-log-flash-linear",
+    feature = "test-log-flash-circular"
 ))]
 static mut BOARD: Option<&'static kernel::Kernel> = None;
 
@@ -95,7 +102,9 @@ static mut BOARD: Option<&'static kernel::Kernel> = None;
     feature = "test-flash-ctrl-read-write-page",
     feature = "test-flash-ctrl-erase-page",
     feature = "test-flash-storage-read-write",
-    feature = "test-flash-storage-erase"
+    feature = "test-flash-storage-erase",
+    feature = "test-log-flash-linear",
+    feature = "test-log-flash-circular"
 ))]
 static mut PLATFORM: Option<&'static VeeR> = None;
 
@@ -103,7 +112,9 @@ static mut PLATFORM: Option<&'static VeeR> = None;
     feature = "test-flash-ctrl-read-write-page",
     feature = "test-flash-ctrl-erase-page",
     feature = "test-flash-storage-read-write",
-    feature = "test-flash-storage-erase"
+    feature = "test-flash-storage-erase",
+    feature = "test-log-flash-linear",
+    feature = "test-log-flash-circular"
 ))]
 static mut MAIN_CAP: Option<&dyn kernel::capabilities::MainLoopCapability> = None;
 
@@ -118,6 +129,9 @@ pub static mut STACK_MEMORY: [u8; 0x2000] = [0; 0x2000];
 
 #[no_mangle]
 pub static mut PIC: Pic = Pic::new(MCU_MEMORY_MAP.pic_offset);
+
+// Storage volume for logging flash. Use 64KB as placeholder.
+storage_volume!(LOG, 64);
 
 /// A structure representing this platform that holds references to all
 /// capsules for this platform.
@@ -142,13 +156,14 @@ struct VeeR {
         'static,
         EmulatedDoeTransport<'static, InternalTimers<'static>>,
     >,
-    flash_partitions: [Option<&'static capsules_runtime::flash_partition::FlashPartition<'static>>;
+    flash_partitions: [Option<&'static capsules_emulator::flash_partition::FlashPartition<'static>>;
         mcu_config_emulator::flash::FLASH_PARTITIONS_COUNT],
     mailbox: &'static capsules_runtime::mailbox::Mailbox<
         'static,
         VirtualMuxAlarm<'static, InternalTimers<'static>>,
     >,
     dma: &'static capsules_emulator::dma::Dma<'static>,
+    logging_flash: &'static capsules_emulator::logging::driver::LoggingFlashDriver<'static>,
 }
 
 /// Mapping of integer syscalls to objects that implement syscalls.
@@ -180,6 +195,9 @@ impl SyscallDriverLookup for VeeR {
                     }
                 }
                 return f(None);
+            }
+            capsules_emulator::logging::driver::LOGGING_FLASH_DRIVER_NUM => {
+                f(Some(self.logging_flash))
             }
 
             _ => f(None),
@@ -282,7 +300,7 @@ pub unsafe fn main() {
     // protection.
 
     // Define platform-specific memory regions
-    let mut platform_regions = ArrayVec::<PlatformRegion, 8>::new();
+    let mut platform_regions = ArrayVec::<PlatformRegion, 9>::new();
 
     // Kernel text region (read + execute)
     platform_regions.push(PlatformRegion {
@@ -374,6 +392,17 @@ pub unsafe fn main() {
         user_accessible: false,
         read: true,
         write: true,
+        execute: false,
+    });
+
+    // Logging flash region
+    platform_regions.push(PlatformRegion {
+        start_addr: addr_of!(_sstorage) as *const u8,
+        size: (addr_of!(_estorage) as usize - addr_of!(_sstorage) as usize),
+        is_mmio: true,
+        user_accessible: false,
+        read: true,
+        write: false,
         execute: false,
     });
 
@@ -553,7 +582,7 @@ pub unsafe fn main() {
             ));
 
     let mut flash_partitions: [Option<
-        &'static capsules_runtime::flash_partition::FlashPartition<'static>,
+        &'static capsules_emulator::flash_partition::FlashPartition<'static>,
     >; mcu_config_emulator::flash::FLASH_PARTITIONS_COUNT] =
         [None; mcu_config_emulator::flash::FLASH_PARTITIONS_COUNT];
 
@@ -577,6 +606,24 @@ pub unsafe fn main() {
         board_kernel,
         mux_secondary_flash
     );
+
+    // Create flash user for logging capsule that is connected to the primary flash
+    let logging_fl_user = components::flash::FlashUserComponent::new(mux_primary_flash).finalize(
+        components::flash_user_component_static!(flash_driver::flash_ctrl::EmulatedFlashCtrl),
+    );
+
+    // Logging capsule
+    let logging_flash = runtime_components::logging::LoggingFlashComponent::new(
+        board_kernel,
+        capsules_emulator::logging::driver::LOGGING_FLASH_DRIVER_NUM,
+        logging_fl_user,
+        &LOG,
+        true,
+    )
+    .finalize(crate::logging_flash_component_static!(
+        virtual_flash::FlashUser<'static, flash_driver::flash_ctrl::EmulatedFlashCtrl>,
+        capsules_emulator::logging::driver::BUF_LEN
+    ));
 
     let dma = runtime_components::dma::DmaComponent::new(
         &emulator_peripherals.dma,
@@ -623,6 +670,7 @@ pub unsafe fn main() {
             flash_partitions,
             mailbox,
             dma,
+            logging_flash,
         }
     );
 
@@ -650,13 +698,21 @@ pub unsafe fn main() {
         feature = "test-flash-ctrl-read-write-page",
         feature = "test-flash-ctrl-erase-page",
         feature = "test-flash-storage-read-write",
-        feature = "test-flash-storage-erase"
+        feature = "test-flash-storage-erase",
+        feature = "test-log-flash-linear",
+        feature = "test-log-flash-circular"
     ))]
     {
         PLATFORM = Some(veer);
         MAIN_CAP = Some(&create_capability!(capabilities::MainLoopCapability));
         BOARD = Some(board_kernel);
     }
+
+    // Disable WDT1 before running the loop or tests
+    let mci: StaticRef<mci::regs::Mci> =
+        unsafe { StaticRef::new(MCU_MEMORY_MAP.mci_offset as *const mci::regs::Mci) };
+    let mci_wdt = romtime::Mci::new(mci);
+    mci_wdt.disable_wdt();
 
     // Run any requested test
     let exit = if cfg!(feature = "test-exit-immediately") {
@@ -689,6 +745,12 @@ pub unsafe fn main() {
     } else if cfg!(feature = "test-doe-transport-loopback") {
         debug!("Executing test-doe-transport-loopback");
         crate::tests::doe_transport_test::test_doe_transport_loopback()
+    } else if cfg!(feature = "test-log-flash-circular") {
+        debug!("Executing test-log-flash-circular");
+        crate::tests::circular_log_test::run(mux_alarm, &emulator_peripherals.primary_flash_ctrl)
+    } else if cfg!(feature = "test-log-flash-linear") {
+        debug!("Executing test-log-flash-linear");
+        crate::tests::linear_log_test::run(mux_alarm, &emulator_peripherals.primary_flash_ctrl)
     } else {
         None
     };
@@ -700,14 +762,9 @@ pub unsafe fn main() {
     }
 
     if let Some(exit) = exit {
+        debug!("Exiting with code {}", exit);
         crate::io::exit_emulator(exit);
     }
-
-    // Disable WDT1 before running the loop
-    let mci: StaticRef<mci::regs::Mci> =
-        unsafe { StaticRef::new(MCU_MEMORY_MAP.mci_offset as *const mci::regs::Mci) };
-    let mci_wdt = romtime::Mci::new(mci);
-    mci_wdt.disable_wdt();
 
     board_kernel.kernel_loop(veer, chip, None::<&kernel::ipc::IPC<0>>, &main_loop_cap);
 }
@@ -716,7 +773,9 @@ pub unsafe fn main() {
     feature = "test-flash-ctrl-read-write-page",
     feature = "test-flash-ctrl-erase-page",
     feature = "test-flash-storage-read-write",
-    feature = "test-flash-storage-erase"
+    feature = "test-flash-storage-erase",
+    feature = "test-log-flash-linear",
+    feature = "test-log-flash-circular"
 ))]
 pub fn run_kernel_op(loops: usize) {
     unsafe {

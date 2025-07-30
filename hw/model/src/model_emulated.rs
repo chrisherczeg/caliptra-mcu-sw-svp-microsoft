@@ -22,6 +22,7 @@ use std::cell::Cell;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
 use std::io::Write;
+use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc;
@@ -141,17 +142,16 @@ impl McuHwModel for ModelEmulated {
         };
         let mcu_root_bus = McuRootBus::new(bus_args).unwrap();
         let mut i3c_controller = I3cController::default();
-        let i3c_error_irq = pic.register_irq(McuRootBus::I3C_ERROR_IRQ);
-        let i3c_notif_irq = pic.register_irq(McuRootBus::I3C_NOTIF_IRQ);
+        let i3c_irq = pic.register_irq(McuRootBus::I3C_IRQ);
         let i3c = I3c::new(
             &clock.clone(),
             &mut i3c_controller,
-            i3c_error_irq,
-            i3c_notif_irq,
+            i3c_irq,
             Version::new(2, 0, 0),
         );
         let otp = Otp::new(&clock.clone(), None, None, None)?;
-        let mci = Mci::new(&clock.clone());
+        let ext_mci = root_bus.mci_external_regs();
+        let mci = Mci::new(&clock.clone(), ext_mci);
 
         let delegates: Vec<Box<dyn caliptra_emu_bus::Bus>> =
             vec![Box::new(mcu_root_bus), Box::new(soc_to_caliptra_bus)];
@@ -268,6 +268,14 @@ impl McuHwModel for ModelEmulated {
     fn events_to_caliptra(&mut self) -> mpsc::Sender<Event> {
         self.events_to_caliptra.clone()
     }
+
+    fn cycle_count(&mut self) -> u64 {
+        self.cpu.clock.now()
+    }
+
+    fn save_otp_memory(&self, _path: &Path) -> Result<()> {
+        unimplemented!()
+    }
 }
 
 #[cfg(test)]
@@ -284,6 +292,7 @@ mod test {
             None,
             None,
             false,
+            None,
             None,
             None,
         )

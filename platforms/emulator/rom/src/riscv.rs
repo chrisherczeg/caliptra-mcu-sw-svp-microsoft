@@ -14,7 +14,7 @@ Abstract:
 
 #![allow(unused_imports)]
 
-use crate::io::{EMULATOR_WRITER, FATAL_ERROR_HANDLER};
+use crate::io::{EMULATOR_EXITER, EMULATOR_WRITER, FATAL_ERROR_HANDLER};
 use core::fmt::Write;
 
 #[cfg(target_arch = "riscv32")]
@@ -30,8 +30,8 @@ use mcu_config_emulator::flash::{
     PartitionTable, StandAloneChecksumCalculator, IMAGE_A_PARTITION, IMAGE_B_PARTITION,
     PARTITION_TABLE,
 };
-use mcu_rom_common::fatal_error;
 use mcu_rom_common::flash::flash_partition::FlashPartition;
+use mcu_rom_common::{fatal_error, RomParameters};
 use romtime::HexWord;
 use zerocopy::{FromBytes, IntoBytes};
 
@@ -53,10 +53,15 @@ pub extern "C" fn rom_entry() -> ! {
         #[allow(static_mut_refs)]
         mcu_rom_common::set_fatal_error_handler(&mut FATAL_ERROR_HANDLER);
     }
+    unsafe {
+        #[allow(static_mut_refs)]
+        romtime::set_exiter(&mut EMULATOR_EXITER);
+    }
 
     #[cfg(feature = "test-flash-based-boot")]
     {
         // Initialize the flash controller for testing purposes
+
         let mut primary_flash_ctrl =
             EmulatedFlashCtrl::initialize_flash_ctrl(PRIMARY_FLASH_CTRL_BASE);
         let mut secondary_flash_ctrl =
@@ -117,11 +122,14 @@ pub extern "C" fn rom_entry() -> ! {
             _ => fatal_error(1),
         };
 
-        mcu_rom_common::rom_start(Some(&mut flash_image_partition_driver));
+        mcu_rom_common::rom_start(RomParameters {
+            flash_partition_driver: Some(&mut flash_image_partition_driver),
+            ..Default::default()
+        });
     }
     #[cfg(not(feature = "test-flash-based-boot"))]
     {
-        mcu_rom_common::rom_start(None);
+        mcu_rom_common::rom_start(RomParameters::default());
     }
 
     #[cfg(feature = "test-mcu-rom-flash-access")]

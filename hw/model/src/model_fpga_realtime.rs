@@ -5,13 +5,16 @@
 use crate::fpga_regs::{Control, FifoData, FifoRegs, FifoStatus, ItrngFifoStatus, WrapperRegs};
 use crate::output::ExitStatus;
 use crate::{xi3c, InitParams, McuHwModel, Output, SecurityState};
-use anyhow::{anyhow, Error, Result};
+use anyhow::{anyhow, bail, Error, Result};
 use caliptra_emu_bus::{Device, Event, EventData, RecoveryCommandCode};
 use caliptra_hw_model_types::{DEFAULT_FIELD_ENTROPY, DEFAULT_UDS_SEED};
 use emulator_bmc::Bmc;
 use registers_generated::i3c;
-use registers_generated::i3c::bits::DeviceStatus0;
+use registers_generated::i3c::bits::{DeviceStatus0, StbyCrDeviceAddr, StbyCrVirtDeviceAddr};
 use registers_generated::mci::bits::Go::Go;
+use std::io::Write;
+use std::net::{SocketAddr, TcpStream};
+use std::path::Path;
 use std::process::exit;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
@@ -35,9 +38,7 @@ const OTP_MAPPING: (usize, usize) = (1, 4);
 // Set to core_clk cycles per ITRNG sample.
 const ITRNG_DIVISOR: u32 = 400;
 const DEFAULT_AXI_PAUSER: u32 = 0xcccc_cccc;
-
-// use the virtual target dynamic address for the recovery target
-const RECOVERY_TARGET_ADDR: u8 = 0x3b;
+const OTP_SIZE: usize = 16384;
 
 // ITRNG FIFO stores 1024 DW and outputs 4 bits at a time to Caliptra.
 const FPGA_ITRNG_FIFO_SIZE: usize = 1024;
@@ -96,6 +97,8 @@ pub struct ModelFpgaRealtime {
     caliptra_rom_backdoor: *mut u8,
     mcu_rom_backdoor: *mut u8,
     otp_mem_backdoor: *mut u8,
+    otp_init: Vec<u8>,
+    lifecycle_controller_state: Option<u32>,
     mci: Mci,
     i3c_mmio: *mut u32,
     i3c_controller_mmio: *mut u32,
@@ -115,9 +118,23 @@ pub struct ModelFpgaRealtime {
     bmc_step_counter: usize,
     i3c_target: &'static i3c::regs::I3c,
     blocks_sent: usize,
+    openocd: Option<TcpStream>,
 }
 
 impl ModelFpgaRealtime {
+    fn set_bootfsm_break(&mut self, val: bool) {
+        if val {
+            self.wrapper
+                .regs()
+                .control
+                .modify(Control::BootfsmBrkpoint::SET);
+        } else {
+            self.wrapper
+                .regs()
+                .control
+                .modify(Control::BootfsmBrkpoint::CLEAR);
+        }
+    }
     fn set_subsystem_reset(&mut self, reset: bool) {
         self.wrapper.regs().control.modify(
             Control::CptraSsRstB.val((!reset) as u32) + Control::CptraPwrgood.val((!reset) as u32),
@@ -685,25 +702,94 @@ impl ModelFpgaRealtime {
         );
     }
 
+    fn get_i3c_primary_addr(&mut self) -> u8 {
+        let reg = self
+            .i3c_core()
+            .stdby_ctrl_mode_stby_cr_device_addr
+            .extract();
+        if reg.is_set(StbyCrDeviceAddr::DynamicAddrValid) {
+            reg.read(StbyCrDeviceAddr::DynamicAddr) as u8
+        } else if reg.is_set(StbyCrDeviceAddr::StaticAddrValid) {
+            reg.read(StbyCrDeviceAddr::StaticAddr) as u8
+        } else {
+            panic!("I3C target does not have a valid address set");
+        }
+    }
+
+    fn get_i3c_recovery_addr(&mut self) -> u8 {
+        let reg = self
+            .i3c_core()
+            .stdby_ctrl_mode_stby_cr_virt_device_addr
+            .extract();
+        if reg.is_set(StbyCrVirtDeviceAddr::VirtDynamicAddrValid) {
+            reg.read(StbyCrVirtDeviceAddr::VirtDynamicAddr) as u8
+        } else if reg.is_set(StbyCrVirtDeviceAddr::VirtStaticAddrValid) {
+            reg.read(StbyCrVirtDeviceAddr::VirtStaticAddr) as u8
+        } else {
+            panic!("I3C target does not have a valid address set");
+        }
+    }
+
+    // send a recovery block write request to the I3C target
+    pub fn send_i3c_write(&mut self, payload: &[u8]) {
+        let target_addr = self.get_i3c_primary_addr();
+        println!("I3C addr = {:x}", target_addr);
+        let mut cmd = xi3c::Command {
+            cmd_type: 1,
+            no_repeated_start: 1,
+            pec: 1,
+            target_addr,
+            ..Default::default()
+        };
+        println!("TTI status: {:x}", self.i3c_core().tti_status.get());
+        println!(
+            "TTI interrupt enable: {:x}",
+            self.i3c_core().tti_interrupt_enable.get()
+        );
+        println!(
+            "TTI interrupt status: {:x}",
+            self.i3c_core().tti_interrupt_status.get()
+        );
+        match self
+            .i3c_controller
+            .master_send_polled(&mut cmd, payload, payload.len() as u16)
+        {
+            Ok(_) => {
+                println!("Acknowledge received");
+            }
+            Err(e) => {
+                println!("Failed to ack write message sent to target: {:x}", e);
+            }
+        }
+
+        println!("TTI status: {:x}", self.i3c_core().tti_status.get());
+        println!(
+            "TTI interrupt enable: {:x}",
+            self.i3c_core().tti_interrupt_enable.get()
+        );
+        println!(
+            "TTI interrupt status: {:x}",
+            self.i3c_core().tti_interrupt_status.get()
+        );
+    }
+
     // send a recovery block read request to the I3C target
     fn recovery_block_read_request(&mut self, command: RecoveryCommandCode) -> Option<Vec<u8>> {
         // per the recovery spec, this maps to a private write and private read
+
+        let target_addr = self.get_i3c_recovery_addr();
 
         // First we write the recovery command code for the block we want
         let mut cmd = xi3c::Command {
             cmd_type: 1,
             no_repeated_start: 0, // we want the next command (read) to be Sr
             pec: 1,
-            target_addr: RECOVERY_TARGET_ADDR,
+            target_addr,
             ..Default::default()
         };
 
         let recovery_command_code = Self::command_code_to_u8(command);
 
-        // println!(
-        //     "Sending write to target: 0x{:x} to start recovery block read (with no termination)",
-        //     recovery_command_code
-        // );
         if self
             .i3c_controller
             .master_send_polled(&mut cmd, &[recovery_command_code], 1)
@@ -712,34 +798,19 @@ impl ModelFpgaRealtime {
             return None;
         }
 
-        // assert!(
-        //         .is_ok(),
-        //     "Failed to ack write message sent to target for command code {}",
-        //     recovery_command_code
-        // );
-        // println!("Acknowledge received");
-
         // then we send a private read for the minimum length
         let len_range = Self::command_code_to_len(command);
-        cmd.target_addr = RECOVERY_TARGET_ADDR;
+        cmd.target_addr = target_addr;
         cmd.no_repeated_start = 0;
         cmd.tid = 0;
         cmd.pec = 0;
         cmd.cmd_type = 1;
-        // println!(
-        //     "Starting private read from target for {} bytes with repeated start",
-        //     len_range.0
-        // );
+
         self.i3c_controller
             .master_recv(&mut cmd, len_range.0 + 2)
             .expect("Failed to receive ack from target");
-        // println!("Acknowledge received");
 
         // read in the length, lsb then msb
-        // println!(
-        //     "Reading the minimum block length ({}+ bytes expected)",
-        //     len_range.0
-        // );
         let resp = self
             .i3c_controller
             .master_recv_finish(
@@ -752,7 +823,6 @@ impl ModelFpgaRealtime {
         if resp.len() < 2 {
             panic!("Expected to read at least 2 bytes from target for recovery block length");
         }
-        // println!("Read from target {:02x?}", resp);
         let len = u16::from_le_bytes([resp[0], resp[1]]);
         if len < len_range.0 || len > len_range.1 {
             self.print_i3c_registers();
@@ -763,14 +833,12 @@ impl ModelFpgaRealtime {
         }
         let len = len as usize;
         let left = len - (resp.len() - 2);
-        // println!("Expect to read {} bytes from target ({} more)", len, left);
         // read the rest of the bytes
         if left > 0 {
             // TODO: if the length is more than the minimum we need to abort and restart with the correct value
             // because the xi3c controller does not support variable reads.
             todo!()
         }
-        // println!("Got block read back from target: {:x?}", &resp[2..]);
         Some(resp[2..].to_vec())
     }
 
@@ -778,21 +846,16 @@ impl ModelFpgaRealtime {
     fn recovery_block_write_request(&mut self, command: RecoveryCommandCode, payload: &[u8]) {
         // per the recovery spec, this maps to a private write
 
+        let target_addr = self.get_i3c_recovery_addr();
         let mut cmd = xi3c::Command {
             cmd_type: 1,
             no_repeated_start: 1,
             pec: 1,
-            target_addr: RECOVERY_TARGET_ADDR,
+            target_addr,
             ..Default::default()
         };
 
         let recovery_command_code = Self::command_code_to_u8(command);
-
-        // println!(
-        //     "Sending write to target: 0x{:x} + 2 bytes length + {} bytes payload",
-        //     recovery_command_code,
-        //     payload.len(),
-        // );
 
         let mut data = vec![recovery_command_code];
         data.extend_from_slice(&(payload.len() as u16).to_le_bytes());
@@ -805,6 +868,74 @@ impl ModelFpgaRealtime {
             "Failed to ack write message sent to target"
         );
         // println!("Acknowledge received");
+    }
+
+    #[allow(dead_code)]
+    fn write_lc(&mut self, offset: u32, data: &[u16]) {
+        let shift = 0;
+        //let offset = offset / 2;
+        for (i, x) in data.iter().copied().enumerate() {
+            let i = (offset as isize + i as isize * 2) << shift;
+            println!("OTP memory write {:04x} = {:02x}", i, (x >> 8) & 0xff);
+            unsafe { core::ptr::write_volatile(self.otp_mem_backdoor.offset(i), (x >> 8) as u8) };
+            println!(
+                "OTP memory write {:04x} = {:02x}",
+                i + (1 << shift),
+                x & 0xff
+            );
+            unsafe {
+                core::ptr::write_volatile(
+                    self.otp_mem_backdoor.offset(i + (1 << shift)),
+                    (x & 0xff) as u8,
+                )
+            };
+        }
+    }
+
+    fn otp_slice(&self) -> &mut [u8] {
+        unsafe { core::slice::from_raw_parts_mut(self.otp_mem_backdoor, OTP_SIZE) }
+    }
+
+    pub fn print_otp_memory(&self) {
+        let otp = self.otp_slice();
+        for (i, oi) in otp.iter().copied().enumerate() {
+            if oi != 0 {
+                println!("OTP mem: {:03x}: {:02x}", i, oi);
+            }
+        }
+    }
+
+    pub fn open_openocd(&mut self, port: u16) -> Result<()> {
+        let addr = SocketAddr::from(([127, 0, 0, 1], port));
+        let stream = TcpStream::connect(addr)?;
+        self.openocd = Some(stream);
+        Ok(())
+    }
+
+    pub fn close_openocd(&mut self) {
+        self.openocd.take();
+    }
+
+    pub fn set_uds_req(&mut self) -> Result<()> {
+        let Some(mut socket) = self.openocd.take() else {
+            bail!("openocd socket is not open");
+        };
+
+        socket.write_all("riscv.cpu riscv dmi_write 0x70 4\n".as_bytes())?;
+
+        self.openocd = Some(socket);
+        Ok(())
+    }
+
+    pub fn set_bootfsm_go(&mut self) -> Result<()> {
+        let Some(mut socket) = self.openocd.take() else {
+            bail!("openocd socket is not open");
+        };
+
+        socket.write_all("riscv.cpu riscv dmi_write 0x61 1\n".as_bytes())?;
+
+        self.openocd = Some(socket);
+        Ok(())
     }
 }
 
@@ -905,7 +1036,8 @@ impl McuHwModel for ModelFpgaRealtime {
             i3c_mmio,
             i3c_controller_mmio,
             i3c_controller,
-
+            otp_init: params.otp_memory.map(|m| m.to_vec()).unwrap_or_default(),
+            lifecycle_controller_state: params.lifecycle_controller_state,
             realtime_thread,
             realtime_thread_exit_flag,
 
@@ -920,15 +1052,20 @@ impl McuHwModel for ModelFpgaRealtime {
             blocks_sent: 0,
             recovery_ctrl_written: false,
             recovery_ctrl_len: 0,
+            openocd: None,
         };
 
         // Set generic input wires.
-        let input_wires = [(!params.uds_granularity_64 as u32) << 31, 0];
+        let input_wires = [0, (!params.uds_granularity_32 as u32) << 31];
         m.set_generic_input_wires(&input_wires);
 
         // Set Security State signal wires
-        println!("Set security state");
-        m.set_security_state(params.security_state);
+        // println!(
+        //     "Set security state to 0x{:x}",
+        //     u32::from(params.security_state)
+        // );
+        // TODO: use lifecycle transitions for this
+        // m.set_security_state(params.security_state);
 
         println!("Set itrng divider");
         // Set divisor for ITRNG throttling
@@ -946,25 +1083,59 @@ impl McuHwModel for ModelFpgaRealtime {
         }
 
         // Set the UDS Seed
-        for (i, &uds) in DEFAULT_UDS_SEED.iter().enumerate() {
-            m.wrapper.regs().cptra_obf_uds_seed[i].set(uds);
+        for (i, udsi) in DEFAULT_UDS_SEED.iter().copied().enumerate() {
+            m.wrapper.regs().cptra_obf_uds_seed[i].set(udsi);
         }
 
-        // Set the FE
-        for (i, &fe) in DEFAULT_FIELD_ENTROPY.iter().enumerate() {
-            m.wrapper.regs().cptra_obf_field_entropy[i].set(fe);
+        // Set the FE Seed
+        for (i, fei) in DEFAULT_FIELD_ENTROPY.iter().copied().enumerate() {
+            m.wrapper.regs().cptra_obf_field_entropy[i].set(fei);
         }
 
         // Currently not using strap UDS and FE
         m.set_secrets_valid(false);
 
+        m.set_bootfsm_break(params.bootfsm_break);
+
+        // Clear the generic input wires in case they were left in a non-zero state.
+        m.set_generic_input_wires(&[0, 0]);
+        m.set_mcu_generic_input_wires(&[0, 0]);
+
+        // if params.uds_program_req {
+        //     // notify MCU that we want to run the UDS provisioning flow
+        //     m.set_mcu_generic_input_wires(&[1, 0]);
+        // }
+
         println!("Putting subsystem into reset");
         m.set_subsystem_reset(true);
 
         println!("Clearing OTP memory");
-        let otp_mem =
-            unsafe { core::slice::from_raw_parts_mut(m.otp_mem_backdoor as *mut u32, 16384 / 4) };
+        let otp_mem = m.otp_slice();
         otp_mem.fill(0);
+
+        if !m.otp_init.is_empty() {
+            // write the initial contents of the OTP memory
+            println!("Initializing OTP with initialized data");
+            if m.otp_init.len() > otp_mem.len() {
+                bail!(
+                    "OTP initialization data is larger than OTP memory {} > {}",
+                    m.otp_init.len(),
+                    otp_mem.len()
+                );
+            }
+            otp_mem[..m.otp_init.len()].copy_from_slice(&m.otp_init);
+            //m.print_otp_memory();
+        }
+
+        // TODO: support directly setting lifecycle state
+        if let Some(_lifecycle_state) = m.lifecycle_controller_state {
+            //println!("Setting LC state to 1");
+            // let lc_cnt_start = 0xfa8;
+            // let lc_state_start = 0xfd8;
+            // count1.reverse();
+            // test_unlocked1.reverse();
+        }
+
         println!("Clearing fifo");
         // Sometimes there's garbage in here; clean it out
         m.clear_logs();
@@ -1078,8 +1249,14 @@ impl McuHwModel for ModelFpgaRealtime {
     }
 
     fn set_generic_input_wires(&mut self, value: &[u32; 2]) {
-        for (i, &val) in value.iter().enumerate() {
-            self.wrapper.regs().generic_input_wires[i].set(val);
+        for (i, wire) in value.iter().copied().enumerate() {
+            self.wrapper.regs().generic_input_wires[i].set(wire);
+        }
+    }
+
+    fn set_mcu_generic_input_wires(&mut self, value: &[u32; 2]) {
+        for (i, wire) in value.iter().copied().enumerate() {
+            self.wrapper.regs().mci_generic_input_wires[i].set(wire);
         }
     }
 
@@ -1090,6 +1267,15 @@ impl McuHwModel for ModelFpgaRealtime {
     fn events_to_caliptra(&mut self) -> mpsc::Sender<Event> {
         todo!()
     }
+
+    fn cycle_count(&mut self) -> u64 {
+        self.wrapper.regs().cycle_count.get() as u64
+    }
+
+    fn save_otp_memory(&self, path: &Path) -> Result<()> {
+        let s = crate::vmem::write_otp_vmem_data(self.otp_slice())?;
+        Ok(std::fs::write(path, s.as_bytes())?)
+    }
 }
 
 impl Drop for ModelFpgaRealtime {
@@ -1097,7 +1283,11 @@ impl Drop for ModelFpgaRealtime {
         self.realtime_thread_exit_flag
             .store(false, Ordering::Relaxed);
         self.realtime_thread.take().unwrap().join().unwrap();
+        self.close_openocd();
         self.i3c_controller.off();
+
+        self.set_generic_input_wires(&[0, 0]);
+        self.set_mcu_generic_input_wires(&[0, 0]);
 
         // ensure that we put the I3C target into a state where we will reset it properly
         self.i3c_target.stdby_ctrl_mode_stby_cr_device_addr.set(0);
@@ -1119,12 +1309,9 @@ impl Drop for ModelFpgaRealtime {
 mod test {
     use crate::{DefaultHwModel, InitParams, McuHwModel};
 
+    #[ignore]
     #[test]
     fn test_new_unbooted() {
-        if !std::path::Path::new("/dev/uio0").exists() {
-            println!("Skipping test_new_unbooted as /dev/uio0 does not exist; did you run cargo xtask fpga-install-kernel-modules ?");
-            return;
-        }
         let mcu_rom = mcu_builder::rom_build(Some("fpga"), "").expect("Could not build MCU ROM");
         let mcu_runtime = &mcu_builder::runtime_build_with_apps_cached(
             &[],
@@ -1133,6 +1320,7 @@ mod test {
             Some("fpga"),
             Some(&mcu_config_fpga::FPGA_MEMORY_MAP),
             false,
+            None,
             None,
             None,
         )
