@@ -21,21 +21,48 @@ Abstract:
 #include <signal.h>
 #include <errno.h>
 #include <getopt.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <signal.h>
-#include <errno.h>
-#include <getopt.h>
+#include <termios.h>
+#include <fcntl.h>
+#include <sys/select.h>
 
 // Global emulator pointer for signal handler
 static struct CEmulator* global_emulator = NULL;
+
+// Terminal settings for raw input
+static struct termios original_termios;
+static int terminal_raw_mode = 0;
+
+// Function to enable raw terminal mode for immediate character input
+void enable_raw_mode() {
+    if (terminal_raw_mode) return;
+    
+    if (tcgetattr(STDIN_FILENO, &original_termios) == -1) {
+        return; // Not a terminal
+    }
+    
+    struct termios raw = original_termios;
+    raw.c_lflag &= ~(ECHO | ICANON | ISIG); // Disable echo, canonical mode, and signals
+    raw.c_cc[VMIN] = 0;  // Non-blocking read
+    raw.c_cc[VTIME] = 0; // No timeout
+    
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == 0) {
+        terminal_raw_mode = 1;
+    }
+}
+
+// Function to restore terminal mode
+void disable_raw_mode() {
+    if (terminal_raw_mode) {
+        tcsetattr(STDIN_FILENO, TCSAFLUSH, &original_termios);
+        terminal_raw_mode = 0;
+    }
+}
 
 // Signal handler for Ctrl+C
 void signal_handler(int sig) {
     if (sig == SIGINT) {
         printf("\nReceived SIGINT, requesting exit...\n");
+        disable_raw_mode(); // Restore terminal
         trigger_exit_request();
     }
 }
@@ -105,34 +132,90 @@ void print_usage(const char* program_name) {
 // Free run function similar to main.rs
 void free_run(struct CEmulator* emulator) {
     printf("Running emulator in normal mode...\n");
+    printf("Console input enabled - type characters to send to UART RX\n");
     
-    printf("Allocated initial UART buffer: %zu MB\n", buffer_size / (1024 * 1024));
+    // Enable raw terminal mode for immediate character input
+    enable_raw_mode();
+    
+    // Buffer for UART output (streaming mode)
+    const size_t uart_buffer_size = 1024;
+    char* uart_buffer = malloc(uart_buffer_size);
+    if (!uart_buffer) {
+        fprintf(stderr, "Failed to allocate UART buffer\n");
+        disable_raw_mode();
+        return;
+    }
+    
+    printf("Allocated UART buffer: %zu bytes\n", uart_buffer_size);
     
     int step_count = 0;
     while (1) {
+        // Check for console input and send to UART RX if available
+        char input_char;
+        if (read(STDIN_FILENO, &input_char, 1) == 1) {
+            // Handle special characters
+            if (input_char == 3) { // Ctrl+C
+                break;
+            } else if (input_char == 127) { // Backspace
+                input_char = 8; // Convert to ASCII backspace
+            }
+            
+            // Try to send character to UART RX
+            if (emulator_uart_rx_ready(emulator)) {
+                emulator_send_uart_char(emulator, input_char);
+                // Echo the character back to console for user feedback
+                if (input_char == 8) {
+                    printf("\b \b"); // Backspace: move back, print space, move back
+                } else if (input_char == '\r' || input_char == '\n') {
+                    printf("\n");
+                } else if (input_char >= 32 && input_char <= 126) { // Printable characters
+                    printf("%c", input_char);
+                }
+                fflush(stdout);
+            }
+        }
+        
         enum CStepAction action = emulator_step(emulator);
+        
+        // Check for UART output (streaming mode)
+        int uart_len = emulator_get_uart_output_streaming(emulator, uart_buffer, uart_buffer_size);
+        if (uart_len > 0) {
+            // Print UART output to console (without extra newline if it already ends with one)
+            printf("%.*s", uart_len, uart_buffer);
+            fflush(stdout);
+        }
         
         switch (action) {
             case Continue:
                 step_count++;
+                // Yield occasionally to avoid busy waiting
+                if (step_count % 1000 == 0) {
+                    usleep(100); // 0.1ms sleep every 1000 steps
+                }
                 break;
                 
             case Break:
-                printf("Emulator hit breakpoint after %d steps\n", step_count);
+                printf("\nEmulator hit breakpoint after %d steps\n", step_count);
+                disable_raw_mode();
                 free(uart_buffer);
                 return;
                 
             case ExitSuccess:
-                printf("Emulator finished successfully after %d steps\n", step_count);
+                printf("\nEmulator finished successfully after %d steps\n", step_count);
+                disable_raw_mode();
                 free(uart_buffer);
                 return;
                 
             case ExitFailure:
-                printf("Emulator exited with failure after %d steps\n", step_count);
+                printf("\nEmulator exited with failure after %d steps\n", step_count);
+                disable_raw_mode();
                 free(uart_buffer);
                 return;
         }
     }
+    
+    disable_raw_mode();
+    free(uart_buffer);
 }
 
 unsigned int parse_hex_or_decimal(const char* str) {
@@ -481,15 +564,16 @@ int main(int argc, char *argv[]) {
         free_run(global_emulator);
     }
 
-    // Final UART output check
+    // Final UART output check (get any remaining output)
     char final_output[4096];
-    int final_len = emulator_get_uart_output(global_emulator, final_output, sizeof(final_output) - 1);
+    int final_len = emulator_get_uart_output_streaming(global_emulator, final_output, sizeof(final_output) - 1);
     if (final_len > 0) {
         final_output[final_len] = '\0';
         printf("Final UART output:\n%s", final_output);
     }
 
     // Clean up
+    disable_raw_mode(); // Ensure terminal is restored
     emulator_destroy(global_emulator);
     free(memory);
     

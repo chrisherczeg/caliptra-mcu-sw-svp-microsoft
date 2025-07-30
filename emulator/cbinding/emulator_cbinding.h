@@ -201,6 +201,55 @@ int emulator_get_uart_output(struct CEmulator *emulator_memory,
                              uintptr_t buffer_size);
 
 /**
+ * Send a character to the emulator's UART RX (for console input simulation)
+ *
+ * # Arguments
+ * * `emulator_memory` - Pointer to the initialized emulator
+ * * `character` - Character to send to UART RX
+ *
+ * # Returns
+ * * 1 if character was queued successfully, 0 if UART RX buffer is full, -1 on error
+ *
+ * # Safety
+ * * `emulator_memory` must point to a valid, initialized emulator
+ */
+int emulator_send_uart_char(struct CEmulator *emulator_memory, char character);
+
+/**
+ * Check if UART RX is ready to accept a new character
+ *
+ * # Arguments
+ * * `emulator_memory` - Pointer to the initialized emulator
+ *
+ * # Returns
+ * * 1 if UART RX is ready for input, 0 if busy/full, -1 on error
+ *
+ * # Safety
+ * * `emulator_memory` must point to a valid, initialized emulator
+ */
+int emulator_uart_rx_ready(struct CEmulator *emulator_memory);
+
+/**
+ * Get the most recent UART output (streaming mode)
+ * This function returns only the new output since the last call and clears the buffer.
+ *
+ * # Arguments
+ * * `emulator_memory` - Pointer to the initialized emulator
+ * * `output_buffer` - Buffer to write the output to
+ * * `buffer_size` - Size of the output buffer
+ *
+ * # Returns
+ * * Number of bytes written to the buffer, or -1 if no output available
+ *
+ * # Safety
+ * * `emulator_memory` must point to a valid, initialized emulator
+ * * `output_buffer` must be a valid buffer of at least `buffer_size` bytes
+ */
+int emulator_get_uart_output_streaming(struct CEmulator *emulator_memory,
+                                       char *output_buffer,
+                                       uintptr_t buffer_size);
+
+/**
  * Start GDB server and wait for connection (blocking)
  * This function should only be called if the emulator was initialized with a GDB port.
  *

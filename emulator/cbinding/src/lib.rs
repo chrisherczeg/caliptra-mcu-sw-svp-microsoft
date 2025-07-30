@@ -477,6 +477,135 @@ pub unsafe extern "C" fn emulator_get_uart_output(
     }
 }
 
+/// Send a character to the emulator's UART RX (for console input simulation)
+/// 
+/// # Arguments
+/// * `emulator_memory` - Pointer to the initialized emulator
+/// * `character` - Character to send to UART RX
+/// 
+/// # Returns
+/// * 1 if character was queued successfully, 0 if UART RX buffer is full, -1 on error
+/// 
+/// # Safety
+/// * `emulator_memory` must point to a valid, initialized emulator
+#[no_mangle]
+pub unsafe extern "C" fn emulator_send_uart_char(
+    emulator_memory: *mut CEmulator,
+    character: c_char,
+) -> c_int {
+    if emulator_memory.is_null() {
+        return -1;
+    }
+
+    let emulator_ptr = emulator_memory as *mut CEmulatorState;
+    let emulator_state = &mut *emulator_ptr;
+    
+    let stdin_uart = match &emulator_state.wrapper {
+        EmulatorWrapper::Normal(emulator) => &emulator.stdin_uart,
+        EmulatorWrapper::Gdb(gdb_target) => &gdb_target.emulator().stdin_uart,
+    };
+
+    if let Some(ref stdin_uart_arc) = stdin_uart {
+        let mut uart_rx = stdin_uart_arc.lock().unwrap();
+        if uart_rx.is_none() {
+            *uart_rx = Some(character as u8);
+            1
+        } else {
+            0 // Buffer full
+        }
+    } else {
+        -1 // UART RX not enabled
+    }
+}
+
+/// Check if UART RX is ready to accept a new character
+/// 
+/// # Arguments
+/// * `emulator_memory` - Pointer to the initialized emulator
+/// 
+/// # Returns
+/// * 1 if UART RX is ready for input, 0 if busy/full, -1 on error
+/// 
+/// # Safety
+/// * `emulator_memory` must point to a valid, initialized emulator
+#[no_mangle]
+pub unsafe extern "C" fn emulator_uart_rx_ready(
+    emulator_memory: *mut CEmulator,
+) -> c_int {
+    if emulator_memory.is_null() {
+        return -1;
+    }
+
+    let emulator_ptr = emulator_memory as *mut CEmulatorState;
+    let emulator_state = &mut *emulator_ptr;
+    
+    let stdin_uart = match &emulator_state.wrapper {
+        EmulatorWrapper::Normal(emulator) => &emulator.stdin_uart,
+        EmulatorWrapper::Gdb(gdb_target) => &gdb_target.emulator().stdin_uart,
+    };
+
+    if let Some(ref stdin_uart_arc) = stdin_uart {
+        let uart_rx = stdin_uart_arc.lock().unwrap();
+        if uart_rx.is_none() { 1 } else { 0 }
+    } else {
+        -1 // UART RX not enabled
+    }
+}
+
+/// Get the most recent UART output (streaming mode)
+/// This function returns only the new output since the last call and clears the buffer.
+/// 
+/// # Arguments
+/// * `emulator_memory` - Pointer to the initialized emulator
+/// * `output_buffer` - Buffer to write the output to
+/// * `buffer_size` - Size of the output buffer
+/// 
+/// # Returns
+/// * Number of bytes written to the buffer, or -1 if no output available
+/// 
+/// # Safety
+/// * `emulator_memory` must point to a valid, initialized emulator
+/// * `output_buffer` must be a valid buffer of at least `buffer_size` bytes
+#[no_mangle]
+pub unsafe extern "C" fn emulator_get_uart_output_streaming(
+    emulator_memory: *mut CEmulator,
+    output_buffer: *mut c_char,
+    buffer_size: usize,
+) -> c_int {
+    if emulator_memory.is_null() || output_buffer.is_null() || buffer_size == 0 {
+        return -1;
+    }
+
+    let emulator_ptr = emulator_memory as *mut CEmulatorState;
+    let emulator_state = &mut *emulator_ptr;
+
+    let uart_output = match &emulator_state.wrapper {
+        EmulatorWrapper::Normal(emulator) => &emulator.uart_output,
+        EmulatorWrapper::Gdb(gdb_target) => &gdb_target.emulator().uart_output,
+    };
+
+    if let Some(ref uart_output_rc) = uart_output {
+        let mut uart_data = uart_output_rc.borrow_mut();
+        let copy_len = std::cmp::min(uart_data.len(), buffer_size - 1);
+        
+        if copy_len > 0 {
+            ptr::copy_nonoverlapping(
+                uart_data.as_ptr() as *const c_char,
+                output_buffer,
+                copy_len,
+            );
+            // Clear the buffer after reading
+            uart_data.clear();
+        }
+        
+        // Null terminate
+        *output_buffer.add(copy_len) = 0;
+        copy_len as c_int
+    } else {
+        -1
+    }
+}
+
 /// Start GDB server and wait for connection (blocking)
 /// This function should only be called if the emulator was initialized with a GDB port.
 /// 
