@@ -19,9 +19,9 @@ fn test_can_import_emulator() {
     // This test just verifies we can import the emulator types
     let size = std::mem::size_of::<Emulator>();
     let align = std::mem::align_of::<Emulator>();
-    
+
     println!("Emulator size: {}, alignment: {}", size, align);
-    
+
     assert!(size > 0);
     assert!(align > 0);
 }
@@ -30,7 +30,7 @@ fn test_can_import_emulator() {
 fn test_emulator_args_creation() {
     // Test that we can create EmulatorArgs
     use std::path::PathBuf;
-    
+
     let args = EmulatorArgs {
         rom: PathBuf::from("test_rom.bin"),
         firmware: PathBuf::from("test_firmware.bin"),
@@ -85,7 +85,7 @@ fn test_emulator_args_creation() {
         lc_offset: None,
         lc_size: None,
     };
-    
+
     println!("EmulatorArgs created successfully");
 }
 
@@ -96,11 +96,11 @@ fn test_emulator_get_pc_function_exists() {
     // which would require valid ROM/firmware files
     use crate::emulator_get_pc;
     use std::ptr;
-    
+
     // Test with null pointer should return 0
     let result = unsafe { emulator_get_pc(ptr::null_mut()) };
     assert_eq!(result, 0);
-    
+
     println!("emulator_get_pc function exists and handles null pointer correctly");
 }
 
@@ -108,22 +108,22 @@ fn test_emulator_get_pc_function_exists() {
 fn test_offset_size_conversion() {
     // Test the new int64 to Option<u32> conversion logic
     use crate::convert_optional_offset_size;
-    
+
     // Test -1 returns None (default)
     assert_eq!(convert_optional_offset_size(-1), None);
-    
+
     // Test valid positive values
     assert_eq!(convert_optional_offset_size(0), Some(0));
     assert_eq!(convert_optional_offset_size(1024), Some(1024));
     assert_eq!(convert_optional_offset_size(0xFFFFFFFF), Some(0xFFFFFFFF));
-    
+
     // Test negative values (other than -1) return None
     assert_eq!(convert_optional_offset_size(-2), None);
     assert_eq!(convert_optional_offset_size(-100), None);
-    
+
     // Test values that exceed u32::MAX return None
     assert_eq!(convert_optional_offset_size(0x100000000), None);
     assert_eq!(convert_optional_offset_size(i64::MAX), None);
-    
+
     println!("Offset/size conversion logic works correctly");
 }

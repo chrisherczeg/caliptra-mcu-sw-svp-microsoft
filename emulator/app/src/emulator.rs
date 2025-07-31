@@ -52,8 +52,15 @@ use tests::mctp_util::base_protocol::LOCAL_TEST_ENDPOINT_EID;
 use tests::pldm_request_response_test::PldmRequestResponseTest;
 
 // Type aliases for external shim callbacks
-pub type ExternalReadCallback = Box<dyn Fn(caliptra_emu_types::RvSize, caliptra_emu_types::RvAddr, &mut u32) -> bool>;
-pub type ExternalWriteCallback = Box<dyn Fn(caliptra_emu_types::RvSize, caliptra_emu_types::RvAddr, caliptra_emu_types::RvData) -> bool>;
+pub type ExternalReadCallback =
+    Box<dyn Fn(caliptra_emu_types::RvSize, caliptra_emu_types::RvAddr, &mut u32) -> bool>;
+pub type ExternalWriteCallback = Box<
+    dyn Fn(
+        caliptra_emu_types::RvSize,
+        caliptra_emu_types::RvAddr,
+        caliptra_emu_types::RvData,
+    ) -> bool,
+>;
 
 #[derive(Parser, Debug, Clone)]
 #[command(version, about, long_about = None, name = "Caliptra MCU Emulator")]
@@ -257,7 +264,7 @@ impl Emulator {
 
     /// Create an Emulator from command line arguments with optional external callbacks
     pub fn from_args_with_callbacks(
-        cli: EmulatorArgs, 
+        cli: EmulatorArgs,
         capture_uart_output: bool,
         external_read_callback: Option<ExternalReadCallback>,
         external_write_callback: Option<ExternalWriteCallback>,
@@ -446,12 +453,15 @@ impl Emulator {
 
         // Set external shim callbacks if provided
         if let Some(read_callback) = external_read_callback {
-            root_bus.external_shim_mut().set_read_callback(read_callback);
+            root_bus
+                .external_shim_mut()
+                .set_read_callback(read_callback);
         }
         if let Some(write_callback) = external_write_callback {
-            root_bus.external_shim_mut().set_write_callback(write_callback);
+            root_bus
+                .external_shim_mut()
+                .set_write_callback(write_callback);
         }
-
 
         let dma_ram = root_bus.ram.clone();
         let dma_rom_sram = root_bus.rom_sram.clone();
@@ -987,11 +997,10 @@ impl Emulator {
         action
     }
 
-     /// Get the current program counter (PC) of the MCU CPU
+    /// Get the current program counter (PC) of the MCU CPU
     pub fn get_pc(&self) -> u32 {
         self.mcu_cpu.read_pc()
     }
-    
 }
 
 fn disassemble(pc: u32, instr: u32) -> String {
