@@ -55,7 +55,7 @@ impl Bus for Shim {
     /// # Error
     ///
     /// * `RvException` - Exception with cause `RvExceptionCause::LoadAccessFault`
-    ///                   or `RvExceptionCause::LoadAddrMisaligned`
+    ///   or `RvExceptionCause::LoadAddrMisaligned`
     fn read(&mut self, size: RvSize, addr: RvAddr) -> Result<RvData, BusError> {
         if let Some(callback) = &self.read_callback {
             let mut buffer: u32 = 0;
@@ -79,7 +79,7 @@ impl Bus for Shim {
     /// # Error
     ///
     /// * `RvException` - Exception with cause `RvExceptionCause::StoreAccessFault`
-    ///                   or `RvExceptionCause::StoreAddrMisaligned`
+    ///   or `RvExceptionCause::StoreAddrMisaligned`
     fn write(&mut self, size: RvSize, addr: RvAddr, value: RvData) -> Result<(), BusError> {
         if let Some(callback) = &self.write_callback {
             if callback(size, addr, value) {
