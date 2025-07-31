@@ -14,9 +14,18 @@ Abstract:
 use caliptra_emu_bus::{Bus, BusError};
 use caliptra_emu_types::{RvAddr, RvData, RvSize};
 
+type ReadCallback = Box<dyn Fn(RvSize, RvAddr, &mut u32) -> bool>;
+type WriteCallback = Box<dyn Fn(RvSize, RvAddr, RvData) -> bool>;
+
 pub struct Shim {
-    read_callback: Option<Box<dyn Fn(RvSize, RvAddr, &mut u32) -> bool>>,
-    write_callback: Option<Box<dyn Fn(RvSize, RvAddr, RvData) -> bool>>,
+    read_callback: Option<ReadCallback>,
+    write_callback: Option<WriteCallback>,
+}
+
+impl Default for Shim {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Shim {
