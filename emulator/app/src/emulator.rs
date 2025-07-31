@@ -31,7 +31,7 @@ use emulator_bmc::Bmc;
 use emulator_caliptra::{start_caliptra, StartCaliptraArgs};
 use emulator_consts::{DEFAULT_CPU_ARGS, RAM_ORG, ROM_SIZE};
 use emulator_periph::{
-    DoeMboxPeriph, DummyDoeMbox, DummyFlashCtrl, I3c, I3cController, LcCtrl, Mci, McuRootBus,
+    CaliptraToExtBus, DoeMboxPeriph, DummyDoeMbox, DummyFlashCtrl, I3c, I3cController, LcCtrl, Mci, McuRootBus,
     McuRootBusArgs, McuRootBusOffsets, Otp,
 };
 use emulator_registers_generated::dma::DmaPeripheral;
@@ -449,18 +449,17 @@ impl Emulator {
             pic: pic.clone(),
             clock: clock.clone(),
         };
-        let mut root_bus = McuRootBus::new(bus_args).unwrap();
+        let root_bus = McuRootBus::new(bus_args).unwrap();
 
-        // Set external shim callbacks if provided
+        // Create external communication bus
+        let mut caliptra_to_ext = CaliptraToExtBus::new();
+
+        // Set external callbacks if provided
         if let Some(read_callback) = external_read_callback {
-            root_bus
-                .external_shim_mut()
-                .set_read_callback(read_callback);
+            caliptra_to_ext.set_read_callback(read_callback);
         }
         if let Some(write_callback) = external_write_callback {
-            root_bus
-                .external_shim_mut()
-                .set_write_callback(write_callback);
+            caliptra_to_ext.set_write_callback(write_callback);
         }
 
         let dma_ram = root_bus.ram.clone();
@@ -704,7 +703,11 @@ impl Emulator {
 
         emulator_periph::DummyDmaCtrl::set_dma_ram(&mut dma_ctrl, dma_ram.clone());
 
-        let delegates: Vec<Box<dyn Bus>> = vec![Box::new(root_bus), Box::new(soc_to_caliptra)];
+        let delegates: Vec<Box<dyn Bus>> = vec![
+            Box::new(root_bus), 
+            Box::new(soc_to_caliptra), 
+            Box::new(caliptra_to_ext)
+        ];
 
         let vendor_pk_hash = cli.vendor_pk_hash.map(|hash| {
             let v = hex::decode(hash).unwrap();

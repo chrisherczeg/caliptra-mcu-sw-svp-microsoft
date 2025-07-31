@@ -4,31 +4,29 @@ Licensed under the Apache-2.0 license.
 
 File Name:
 
-    external_shim.rs
+    caliptra_to_ext_bus.rs
 
 Abstract:
 
-    File contains external shim to access external peripherals.
+    File contains the CaliptraToExtBus implementation for handling external 
+    communication via callbacks.
 
 --*/
+
 use caliptra_emu_bus::{Bus, BusError};
 use caliptra_emu_types::{RvAddr, RvData, RvSize};
+use std::{rc::Rc, sync::mpsc};
 
 type ReadCallback = Box<dyn Fn(RvSize, RvAddr, &mut u32) -> bool>;
 type WriteCallback = Box<dyn Fn(RvSize, RvAddr, RvData) -> bool>;
 
-pub struct Shim {
+/// Bus for handling external communication via callbacks
+pub struct CaliptraToExtBus {
     read_callback: Option<ReadCallback>,
     write_callback: Option<WriteCallback>,
 }
 
-impl Default for Shim {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Shim {
+impl CaliptraToExtBus {
     pub fn new() -> Self {
         Self {
             read_callback: None,
@@ -51,9 +49,20 @@ impl Shim {
     {
         self.write_callback = Some(Box::new(callback));
     }
+
+    // Keep this method for backward compatibility but delegate to set_read_callback
+    pub fn external_shim_mut(&mut self) -> &mut Self {
+        self
+    }
 }
 
-impl Bus for Shim {
+impl Default for CaliptraToExtBus {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Bus for CaliptraToExtBus {
     /// Read data of specified size from given address
     ///
     /// # Arguments
@@ -63,8 +72,7 @@ impl Bus for Shim {
     ///
     /// # Error
     ///
-    /// * `RvException` - Exception with cause `RvExceptionCause::LoadAccessFault`
-    ///   or `RvExceptionCause::LoadAddrMisaligned`
+    /// * `BusError::LoadAccessFault` - If no callback is registered or callback returns false
     fn read(&mut self, size: RvSize, addr: RvAddr) -> Result<RvData, BusError> {
         if let Some(callback) = &self.read_callback {
             let mut buffer: u32 = 0;
@@ -83,20 +91,39 @@ impl Bus for Shim {
     ///
     /// * `size` - Size of the write
     /// * `addr` - Address to write
-    /// * `data` - Data to write
+    /// * `val` - Data to write
     ///
     /// # Error
     ///
-    /// * `RvException` - Exception with cause `RvExceptionCause::StoreAccessFault`
-    ///   or `RvExceptionCause::StoreAddrMisaligned`
-    fn write(&mut self, size: RvSize, addr: RvAddr, value: RvData) -> Result<(), BusError> {
+    /// * `BusError::StoreAccessFault` - If no callback is registered or callback returns false
+    fn write(&mut self, size: RvSize, addr: RvAddr, val: RvData) -> Result<(), BusError> {
         if let Some(callback) = &self.write_callback {
-            if callback(size, addr, value) {
+            if callback(size, addr, val) {
                 return Ok(());
             } else {
                 return Err(BusError::StoreAccessFault);
             }
         }
         Err(BusError::StoreAccessFault)
+    }
+
+    fn poll(&mut self) {
+        // External communication doesn't need polling
+    }
+
+    fn warm_reset(&mut self) {
+        // External communication doesn't need reset handling
+    }
+
+    fn update_reset(&mut self) {
+        // External communication doesn't need reset handling
+    }
+
+    fn register_outgoing_events(&mut self, _sender: mpsc::Sender<caliptra_emu_bus::Event>) {
+        // External communication doesn't need event handling
+    }
+
+    fn incoming_event(&mut self, _event: Rc<caliptra_emu_bus::Event>) {
+        // External communication doesn't need event handling
     }
 }
