@@ -90,18 +90,18 @@ fn test_emulator_args_creation() {
 }
 
 #[test]
-fn test_get_pc_function_exists() {
-    // This test verifies that the get_pc function exists and can be called
+fn test_emulator_get_pc_function_exists() {
+    // This test verifies that the emulator_get_pc function exists and can be called
     // We can't actually test it fully without creating a real emulator instance
     // which would require valid ROM/firmware files
-    use crate::get_pc;
+    use crate::emulator_get_pc;
     use std::ptr;
     
     // Test with null pointer should return 0
-    let result = unsafe { get_pc(ptr::null_mut()) };
+    let result = unsafe { emulator_get_pc(ptr::null_mut()) };
     assert_eq!(result, 0);
     
-    println!("get_pc function exists and handles null pointer correctly");
+    println!("emulator_get_pc function exists and handles null pointer correctly");
 }
 
 #[test]

@@ -67,7 +67,7 @@ void signal_handler(int sig) {
     if (sig == SIGINT) {
         printf("\nReceived SIGINT, requesting exit...\n");
         disable_raw_mode(); // Restore terminal
-        trigger_exit_request();
+        emulator_trigger_exit();
     }
 }
 

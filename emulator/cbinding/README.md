@@ -260,7 +260,7 @@ size_t emulator_get_alignment();      // Required alignment
 enum EmulatorError emulator_init(struct CEmulator* memory, const struct CEmulatorConfig* config);
 enum CStepAction emulator_step(struct CEmulator* memory);
 void emulator_destroy(struct CEmulator* memory);
-unsigned int get_pc(struct CEmulator* memory);  // Get program counter
+unsigned int emulator_get_pc(struct CEmulator* memory);  // Get program counter
 ```
 
 ### Error Codes
@@ -290,7 +290,7 @@ enum EmulatorError emulator_run_gdb_server(struct CEmulator* memory);
 
 ### Utility Functions
 ```c
-enum EmulatorError trigger_exit_request();  // Request clean shutdown
+enum EmulatorError emulator_trigger_exit();  // Request clean shutdown
 ```
 
 ## Integration

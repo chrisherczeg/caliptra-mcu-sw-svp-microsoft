@@ -708,7 +708,7 @@ pub unsafe extern "C" fn emulator_get_gdb_port(emulator_memory: *mut CEmulator) 
 /// # Safety
 /// * `emulator_memory` must point to a valid, initialized emulator
 #[no_mangle]
-pub unsafe extern "C" fn get_pc(emulator_memory: *mut CEmulator) -> c_uint {
+pub unsafe extern "C" fn emulator_get_pc(emulator_memory: *mut CEmulator) -> c_uint {
     if emulator_memory.is_null() {
         return 0;
     }
@@ -728,7 +728,7 @@ pub unsafe extern "C" fn get_pc(emulator_memory: *mut CEmulator) -> c_uint {
 /// # Returns
 /// * `EmulatorError::Success` on success
 #[no_mangle]
-pub extern "C" fn trigger_exit_request() -> EmulatorError {
+pub extern "C" fn emulator_trigger_exit() -> EmulatorError {
     EMULATOR_RUNNING.store(false, Ordering::Relaxed);
     EmulatorError::Success
 }

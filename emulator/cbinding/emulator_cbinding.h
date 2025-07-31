@@ -316,7 +316,7 @@ unsigned int emulator_get_gdb_port(struct CEmulator *emulator_memory);
  * # Safety
  * * `emulator_memory` must point to a valid, initialized emulator
  */
-unsigned int get_pc(struct CEmulator *emulator_memory);
+unsigned int emulator_get_pc(struct CEmulator *emulator_memory);
 
 /**
  * Trigger an exit request by setting EMULATOR_RUNNING to false
@@ -325,7 +325,7 @@ unsigned int get_pc(struct CEmulator *emulator_memory);
  * # Returns
  * * `EmulatorError::Success` on success
  */
-enum EmulatorError trigger_exit_request(void);
+enum EmulatorError emulator_trigger_exit(void);
 
 /**
  * Example external read callback that returns the address as data
