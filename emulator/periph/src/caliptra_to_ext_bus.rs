@@ -8,7 +8,7 @@ File Name:
 
 Abstract:
 
-    File contains the CaliptraToExtBus implementation for handling external 
+    File contains the CaliptraToExtBus implementation for handling external
     communication via callbacks.
 
 --*/

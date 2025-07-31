@@ -31,8 +31,8 @@ use emulator_bmc::Bmc;
 use emulator_caliptra::{start_caliptra, StartCaliptraArgs};
 use emulator_consts::{DEFAULT_CPU_ARGS, RAM_ORG, ROM_SIZE};
 use emulator_periph::{
-    CaliptraToExtBus, DoeMboxPeriph, DummyDoeMbox, DummyFlashCtrl, I3c, I3cController, LcCtrl, Mci, McuRootBus,
-    McuRootBusArgs, McuRootBusOffsets, Otp,
+    CaliptraToExtBus, DoeMboxPeriph, DummyDoeMbox, DummyFlashCtrl, I3c, I3cController, LcCtrl, Mci,
+    McuRootBus, McuRootBusArgs, McuRootBusOffsets, Otp,
 };
 use emulator_registers_generated::dma::DmaPeripheral;
 use emulator_registers_generated::root_bus::{AutoRootBus, AutoRootBusOffsets};
@@ -704,9 +704,9 @@ impl Emulator {
         emulator_periph::DummyDmaCtrl::set_dma_ram(&mut dma_ctrl, dma_ram.clone());
 
         let delegates: Vec<Box<dyn Bus>> = vec![
-            Box::new(root_bus), 
-            Box::new(soc_to_caliptra), 
-            Box::new(caliptra_to_ext)
+            Box::new(root_bus),
+            Box::new(soc_to_caliptra),
+            Box::new(caliptra_to_ext),
         ];
 
         let vendor_pk_hash = cli.vendor_pk_hash.map(|hash| {
