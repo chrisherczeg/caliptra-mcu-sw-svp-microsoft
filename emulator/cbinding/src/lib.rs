@@ -750,6 +750,9 @@ pub extern "C" fn emulator_trigger_exit() -> EmulatorError {
 ///
 /// # Returns
 /// * 1 for success
+///
+/// # Safety
+/// * `buffer` must be a valid pointer to a u32 that can be written to
 #[no_mangle]
 pub unsafe extern "C" fn example_external_read_callback(
     _context: *const std::ffi::c_void,
@@ -777,6 +780,10 @@ pub unsafe extern "C" fn example_external_read_callback(
 ///
 /// # Returns
 /// * 1 for success
+///
+/// # Safety
+/// * This function only reads the provided parameters and performs no unsafe operations
+/// * All parameters are passed by value, so no pointer safety concerns
 #[no_mangle]
 pub unsafe extern "C" fn example_external_write_callback(
     _context: *const std::ffi::c_void,

@@ -19,27 +19,11 @@ fn main() {
 
     cbindgen::Builder::new()
         .with_crate(crate_dir)
-        .with_language(cbindgen::Language::C)
-        .with_style(cbindgen::Style::Both)
-        .with_include_guard("EMULATOR_CBINDING_H")
-        .with_pragma_once(true)
-        .with_documentation(true)
-        .with_parse_deps(false)
-        .include_item("EmulatorError")
-        .include_item("CStepAction")
-        .include_item("CEmulator")
-        .include_item("CEmulatorConfig")
-        .include_item("emulator_get_size")
-        .include_item("emulator_get_alignment")
-        .include_item("emulator_init")
-        .include_item("emulator_step")
-        .include_item("emulator_destroy")
-        .include_item("emulator_get_uart_output")
-        .include_item("emulator_get_pc")
-        .include_item("emulator_trigger_exit")
+        .with_config(cbindgen::Config::from_file("cbindgen.toml").unwrap())
         .generate()
         .expect("Unable to generate bindings")
         .write_to_file("emulator_cbinding.h");
 
     println!("cargo:rerun-if-changed=src/lib.rs");
+    println!("cargo:rerun-if-changed=cbindgen.toml");
 }
